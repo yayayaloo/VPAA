@@ -1,4 +1,5 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Users, 
@@ -6,11 +7,18 @@ import {
   LogOut, 
   Bell, 
   Calendar,
-  ChevronRight
+  ChevronRight,
+  AlertCircle // Added this for the modal icon
 } from 'lucide-react';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase'; 
 
 const DashboardLayout = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  
+  // State to control the visibility of the logout modal
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   
   const getPageTitle = () => {
     switch (location.pathname) {
@@ -18,6 +26,16 @@ const DashboardLayout = () => {
       case '/faculty-review': return 'Faculty Review';
       case '/history': return 'History';
       default: return 'Portal';
+    }
+  };
+
+  // Firebase Logout Handler
+  const handleConfirmLogout = async () => {
+    try {
+      await signOut(auth);
+      navigate('/login');
+    } catch (error) {
+      console.error("Error signing out: ", error);
     }
   };
 
@@ -67,7 +85,11 @@ const DashboardLayout = () => {
             </div>
           </div>
           
-          <button className="flex items-center gap-3 px-4 py-3 w-full text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-all text-sm font-semibold">
+          <button 
+            // Change 1: This now opens the modal instead of logging out immediately
+            onClick={() => setShowLogoutModal(true)} 
+            className="flex items-center gap-3 px-4 py-3 w-full text-white/60 hover:text-white hover:bg-green-500/20 hover:text-red-400 rounded-lg transition-all text-sm font-semibold"
+          >
             <LogOut size={20} />
             Logout
           </button>
@@ -97,10 +119,41 @@ const DashboardLayout = () => {
         </header>
 
         {/* Scrollable Content */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-8 relative">
           <Outlet />
         </main>
       </div>
+
+      {/* Change 2: The Logout Confirmation Modal */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-50 text-red-500 mb-4 mx-auto">
+                <AlertCircle size={24} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Ready to leave?</h3>
+              <p className="text-sm text-slate-500 text-center mb-6">
+                Are you sure you want to log out of the VPAA portal? You will need to sign in again to access your account.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowLogoutModal(false)}
+                  className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleConfirmLogout}
+                  className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-red-500/30 transition-colors"
+                >
+                  Yes, Log Out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

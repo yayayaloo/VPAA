@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import FacultyReviewPage from './pages/FacultyReviewPage';
 import HistoryPage from './pages/HistoryPage';
 import CycleDetailsPage from './pages/CycleDetailsPage';
+import ProtectedRoute from './components/ProtectedRoute'; // <-- Import your new route guard
 
 function App() {
   return (
@@ -18,8 +19,14 @@ function App() {
           <Route path="/set-password" element={<SetPasswordPage />} />
         </Route>
 
-        {/* Dashboard Routes */}
-        <Route element={<DashboardLayout />}>
+        {/* Dashboard Routes (Protected) */}
+        <Route 
+          element={
+            <ProtectedRoute>
+              <DashboardLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/faculty-review" element={<FacultyReviewPage />} />
           <Route path="/history" element={<HistoryPage />} />
@@ -27,7 +34,7 @@ function App() {
         </Route>
 
         {/* Redirects */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </Router>
