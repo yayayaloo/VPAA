@@ -1,67 +1,109 @@
-import { ArrowRight, CheckCircle2, Clock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowRight, CheckCircle2, Clock, Activity as ActivityIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { db } from '../firebase'; 
+
+interface Cycle {
+  id: string;
+  title: string;
+  status: string;
+  isCurrent: boolean;
+  started: string;
+  deadline?: string;
+  published?: string;
+  badge: string | null;
+}
+
+interface ActivityLog {
+  id: string;
+  user: string;
+  action: string;
+  time: string;
+  type: string;
+}
 
 const DashboardPage = () => {
-  const cycles = [
-    { 
-      id: 1, 
-      title: '1st Semester AY 2026-2027', 
-      status: 'In Progress', 
-      isCurrent: true,
-      started: 'Feb 1, 2026',
-      deadline: 'March 15, 2026',
-      badge: 'CLOSED'
-    },
-    { 
-      id: 2, 
-      title: '2nd Semester AY 2025-2026', 
-      status: 'Published', 
-      isCurrent: false,
-      started: 'Aug 1, 2025',
-      published: 'Oct 10, 2025'
-    },
-    { 
-      id: 3, 
-      title: '1st Semester AY 2025-2026', 
-      status: 'Published', 
-      isCurrent: false,
-      started: 'Feb 1, 2025',
-      published: 'Apr 5, 2025'
-    },
-  ];
+  const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const activities = [
-    { 
-      id: 1, 
-      user: 'Dr. Maria Santos', 
-      action: 'Change Salamnder, John Doe Under Review → Reviewed', 
-      time: 'Today, 8:00 AM' 
-    },
-    { 
-      id: 2, 
-      user: 'Prof. Robert Garcia', 
-      action: 'Change Salamnder, John Doe Reviewed → Under Review', 
-      time: 'Feb 1, 2026' 
-    },
-    { 
-      id: 3, 
-      user: 'Dr. Maria Santos', 
-      action: 'Change Salamnder, John Doe Under Review → Reviewed', 
-      time: 'January 20, 2026' 
-    },
-    { 
-      id: 4, 
-      user: 'Dr. Maria Santos', 
-      action: 'Change Salamnder, John Doe Under Review → Reviewed', 
-      time: 'January 20, 2026' 
-    },
-    { 
-      id: 5, 
-      user: 'Dr. Maria Santos', 
-      action: 'Change Salamnder, John Doe Under Review → Reviewed', 
-      time: 'January 20, 2026' 
-    },
-  ];
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true);
+
+        // 1. Fetch Ranking Cycles
+        const cyclesQuery = query(collection(db, 'ranking_cycles'));
+        const cyclesSnapshot = await getDocs(cyclesQuery);
+        
+        const fetchedCycles: Cycle[] = cyclesSnapshot.docs.map(doc => {
+          const data = doc.data();
+          
+          const startDate = data.start_date?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) || 'TBA';
+          const deadlineDate = data.deadline?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) || 'TBA';
+          const publishedDate = data.published_date?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+          return {
+            id: doc.id,
+            title: data.title || `${data.semester} AY ${data.year}`,
+            status: data.status === 'open' ? 'In Progress' : 'Completed',
+            isCurrent: data.status === 'open',
+            started: startDate,
+            deadline: deadlineDate,
+            published: publishedDate,
+            badge: data.status !== 'open' ? 'CLOSED' : null
+          };
+        });
+
+        // Sort: Current cycles first, then closed cycles
+        fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
+        setCycles(fetchedCycles);
+
+        // 2. Fetch Recent Activities (Assumes you have an 'activity_logs' collection)
+        // Ensure you create an index in Firebase if you use orderBy and limit together!
+        const logsQuery = query(
+          collection(db, 'activity_logs'), 
+          orderBy('timestamp', 'desc'), 
+          limit(5)
+        );
+        
+        try {
+          const logsSnapshot = await getDocs(logsQuery);
+          const fetchedLogs: ActivityLog[] = logsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            // Format timestamp nicely (e.g., "Today, 8:00 AM" or "Feb 1, 2026")
+            const logDate = data.timestamp?.toDate();
+            const timeString = logDate ? logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown time';
+
+            return {
+              id: doc.id,
+              user: data.user || 'System',
+              action: data.action || 'Unknown action',
+              time: timeString,
+              type: data.type || 'info'
+            };
+          });
+          setActivities(fetchedLogs);
+        } catch (logErr) {
+          console.warn("Could not fetch activity logs. Make sure the 'activity_logs' collection exists.", logErr);
+          // Fallback to empty if collection doesn't exist yet so it doesn't crash the whole page
+          setActivities([]); 
+        }
+
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500 font-bold animate-pulse">Loading dashboard data...</div>;
+  }
 
   return (
     <div className="space-y-10">
@@ -73,7 +115,7 @@ const DashboardPage = () => {
             <p className="text-xs text-slate-500">All cycles you have participated in or that are currently open</p>
           </div>
           <div className="bg-primary/5 text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/10">
-            3 Cycles
+            {cycles.length} Cycles
           </div>
         </div>
 
@@ -131,13 +173,14 @@ const DashboardPage = () => {
                     {cycle.status}
                   </div>
                   
-                  {cycle.id === 1 ? (
-                    <button className="bg-primary text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center gap-2">
-                      Submit Final Result
+                  {cycle.isCurrent ? (
+                    // Redirects to the CycleDetailsPage we worked on previously!
+                    <Link to={`/cycle/${cycle.id}`} className="bg-primary text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center gap-2">
+                      Review Submissions
                       <ArrowRight size={14} />
-                    </button>
+                    </Link>
                   ) : (
-                    <Link to={`/history/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group">
+                    <Link to={`/cycle/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group">
                       See more
                       <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                     </Link>
@@ -146,6 +189,12 @@ const DashboardPage = () => {
               </div>
             </div>
           ))}
+
+          {cycles.length === 0 && !loading && (
+             <div className="col-span-full p-8 text-center text-slate-500 text-sm border-2 border-dashed border-slate-200 rounded-2xl">
+               No ranking cycles found. Create one to get started.
+             </div>
+          )}
         </div>
       </section>
 
@@ -153,25 +202,30 @@ const DashboardPage = () => {
       <section>
         <div className="mb-6">
           <h3 className="text-lg font-bold text-sidebar">Recent Activities</h3>
-          <p className="text-xs text-slate-500">Latest Update from the faculty and system</p>
+          <p className="text-xs text-slate-500">Latest Updates from faculty and the system</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="divide-y divide-slate-100">
-            {activities.map((activity) => (
+            {activities.length > 0 ? activities.map((activity) => (
               <div key={activity.id} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
                 <div>
                   <h5 className="text-sm font-bold text-slate-800">{activity.user}</h5>
                   <p className="text-[13px] text-slate-600 font-medium">{activity.action}</p>
                   <p className="text-[11px] text-slate-400 mt-1">{activity.time}</p>
                 </div>
-                {activity.id === 1 && (
+                {activity.type === 'success' && (
                   <div className="bg-primary/5 text-primary p-2 rounded-lg">
                     <CheckCircle2 size={18} />
                   </div>
                 )}
               </div>
-            ))}
+            )) : (
+              <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
+                <ActivityIcon size={24} className="opacity-20" />
+                No recent activities recorded.
+              </div>
+            )}
           </div>
         </div>
       </section>

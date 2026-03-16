@@ -1,6 +1,109 @@
-import { User } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, AlertCircle, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { 
+  EmailAuthProvider, 
+  reauthenticateWithCredential, 
+  updatePassword 
+} from 'firebase/auth';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase'; // Adjust path if needed
 
 const SetPasswordPage = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [error, setError] = useState('');
+  
+  const [userData, setUserData] = useState({ name: '', email: '' });
+  const [tempPassword, setTempPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Fetch current user details on load
+  useEffect(() => {
+    const fetchUser = async () => {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        navigate('/login'); // Not logged in? Send back to login
+        return;
+      }
+
+      try {
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setUserData({
+            name: `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'User',
+            email: currentUser.email || ''
+          });
+        }
+      } catch (err) {
+        console.error("Error fetching user data", err);
+      } finally {
+        setPageLoading(false);
+      }
+    };
+
+    fetchUser();
+  }, [navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setError('New password must be at least 6 characters long.');
+      return;
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser || !currentUser.email) return;
+
+    try {
+      setLoading(true);
+
+      // 1. Re-authenticate the user with their temporary password
+      const credential = EmailAuthProvider.credential(currentUser.email, tempPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+
+      // 2. Update their password in Firebase Auth
+      await updatePassword(currentUser, newPassword);
+
+      // 3. Update Firestore so they are no longer flagged for a password reset
+      const userRef = doc(db, 'users', currentUser.uid);
+    await updateDoc(userRef, {
+        is_first_login: false 
+      });
+
+      // 4. Send them to the dashboard!
+      navigate('/dashboard');
+
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/invalid-credential') {
+        setError('Incorrect temporary password.');
+      } else {
+        setError('Failed to update password. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (pageLoading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <Loader2 className="animate-spin text-primary w-8 h-8" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center">
       <div className="mb-6 flex flex-col items-center text-center">
@@ -22,18 +125,28 @@ const SetPasswordPage = () => {
           <User className="w-5 h-5 text-primary" />
         </div>
         <div>
-          <p className="text-sm font-bold text-slate-800">David Bryan B. Candido</p>
-          <p className="text-xs text-slate-500">202011090@gordoncollege.edu.ph</p>
+          <p className="text-sm font-bold text-slate-800">{userData.name || 'Loading...'}</p>
+          <p className="text-xs text-slate-500">{userData.email || 'Loading...'}</p>
         </div>
       </div>
 
-      <form className="w-full space-y-5">
+      <form onSubmit={handleSubmit} className="w-full space-y-5">
+        {error && (
+          <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs font-bold flex items-center gap-2 border border-red-100">
+            <AlertCircle size={14} />
+            {error}
+          </div>
+        )}
+
         <div>
           <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 px-1">Temporary Password</label>
           <input 
             type="password" 
             placeholder="Enter your temporary password"
             className="input-field"
+            value={tempPassword}
+            onChange={(e) => setTempPassword(e.target.value)}
+            required
           />
         </div>
 
@@ -43,6 +156,9 @@ const SetPasswordPage = () => {
             type="password" 
             placeholder="Create a strong password"
             className="input-field"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
           />
         </div>
 
@@ -52,10 +168,18 @@ const SetPasswordPage = () => {
             type="password" 
             placeholder="Re-enter your new password"
             className="input-field"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
           />
         </div>
 
-        <button type="submit" className="btn-primary w-full shadow-lg shadow-primary/20 mt-4">
+        <button 
+          type="submit" 
+          disabled={loading}
+          className="btn-primary w-full shadow-lg shadow-primary/20 mt-4 flex justify-center items-center gap-2 disabled:opacity-50"
+        >
+          {loading && <Loader2 size={16} className="animate-spin" />}
           Update Password
         </button>
       </form>

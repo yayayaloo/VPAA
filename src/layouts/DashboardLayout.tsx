@@ -8,7 +8,7 @@ import {
   Bell, 
   Calendar,
   ChevronRight,
-  AlertCircle // Added this for the modal icon
+  AlertCircle 
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase'; 
@@ -17,7 +17,6 @@ const DashboardLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   
-  // State to control the visibility of the logout modal
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   
   const getPageTitle = () => {
@@ -29,7 +28,6 @@ const DashboardLayout = () => {
     }
   };
 
-  // Firebase Logout Handler
   const handleConfirmLogout = async () => {
     try {
       await signOut(auth);
@@ -37,6 +35,17 @@ const DashboardLayout = () => {
     } catch (error) {
       console.error("Error signing out: ", error);
     }
+  };
+
+  // NEW: Function to get the current formatted date (e.g., "Monday, Mar 16, 2026")
+  const getCurrentDate = () => {
+    const options: Intl.DateTimeFormatOptions = { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    };
+    return new Date().toLocaleDateString('en-US', options);
   };
 
   const navItems = [
@@ -86,7 +95,6 @@ const DashboardLayout = () => {
           </div>
           
           <button 
-            // Change 1: This now opens the modal instead of logging out immediately
             onClick={() => setShowLogoutModal(true)} 
             className="flex items-center gap-3 px-4 py-3 w-full text-white/60 hover:text-white hover:bg-green-500/20 hover:text-red-400 rounded-lg transition-all text-sm font-semibold"
           >
@@ -106,9 +114,10 @@ const DashboardLayout = () => {
           </div>
 
           <div className="flex items-center gap-6">
+            {/* UPDATED: Calling the dynamic date function */}
             <div className="flex items-center gap-2 text-slate-500 bg-slate-50 px-4 py-2 rounded-full border border-slate-200">
               <Calendar size={16} />
-              <span className="text-sm font-semibold">Saturday, Feb 28, 2026</span>
+              <span className="text-sm font-semibold">{getCurrentDate()}</span>
             </div>
             
             <button className="relative p-2 text-slate-400 hover:text-primary transition-colors bg-slate-50 rounded-full border border-slate-200">
@@ -124,7 +133,7 @@ const DashboardLayout = () => {
         </main>
       </div>
 
-      {/* Change 2: The Logout Confirmation Modal */}
+      {/* Logout Confirmation Modal */}
       {showLogoutModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">

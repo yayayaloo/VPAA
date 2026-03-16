@@ -1,26 +1,34 @@
-import React, { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
-// FIX: Added 'type' keyword before 'User'
-import { onAuthStateChanged, type User } from 'firebase/auth'; 
-import { auth } from '../firebase'; // Adjust this path to your firebase config
+import { useState, useEffect } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { Loader2 } from 'lucide-react';
 
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-}
-
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isFirstLogin, setIsFirstLogin] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
-    // Listen for Firebase auth state changes
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      // Extra layer of security: Double-check domain on the route level
-      if (currentUser && !currentUser.email?.endsWith('@gordoncollege.edu.ph')) {
-        auth.signOut(); // Force sign out if domain is wrong
-        setUser(null);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setIsAuthenticated(true);
+        
+        try {
+          // Check if they still need to change their password
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists() && userDoc.data().is_first_login === true) {
+            setIsFirstLogin(true);
+          } else {
+            setIsFirstLogin(false);
+          }
+        } catch (error) {
+          console.error("Error checking user status:", error);
+        }
       } else {
-        setUser(currentUser);
+        setIsAuthenticated(false);
       }
       setLoading(false);
     });
@@ -29,20 +37,24 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }, []);
 
   if (loading) {
-    // Optional: Replace this with your own loading spinner component
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-slate-50">
-        <p className="text-sm font-semibold text-slate-500 tracking-widest uppercase">Verifying Access...</p>
+      <div className="h-screen w-full flex items-center justify-center">
+        <Loader2 className="animate-spin text-primary w-8 h-8" />
       </div>
     );
   }
 
-  if (!user) {
-    // If no valid user is found, redirect to login
-    return <Navigate to="/login" replace />;
+  // Not logged in? Send to login.
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // If user is valid, render the requested layout/page
+  // Logged in but hasn't changed their temporary password? Force them to the set-password page.
+  if (isFirstLogin) {
+    return <Navigate to="/set-password" replace />;
+  }
+
+  // Logged in and password is changed? Let them into the Dashboard!
   return <>{children}</>;
 };
 

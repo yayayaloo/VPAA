@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebase'; // Adjust this path to where your firebase.js is located
+import { doc, getDoc } from 'firebase/firestore'; // ✨ NEW: Import Firestore methods
+import { auth, db } from '../firebase'; // ✨ NEW: Make sure db is imported
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -11,7 +12,6 @@ const LoginPage = () => {
   
   const navigate = useNavigate();
 
-  // FIX 1: Add React.FormEvent type to the event parameter
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
@@ -24,12 +24,31 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate('/dashboard'); // Change this to your actual post-login route
+      // 1. Authenticate the user
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // 2. Fetch the user's document from Firestore to check their status
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      // 3. Route them based on their first-login flag
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+        
+     if (userData.is_first_login === true) {
+          navigate('/set-password'); // Send to Set Password page!
+        } else {
+          navigate('/dashboard'); // Normal login, send to Dashboard
+        }
+      } else {
+        // Fallback just in case they don't have a Firestore document yet
+        navigate('/dashboard'); 
+      }
+
     } catch (err) {
       setError('Invalid email or password. Please try again.');
       
-      // FIX 2: Check if 'err' is an Error object before accessing .message
       if (err instanceof Error) {
         console.error(err.message);
       } else {
@@ -93,9 +112,17 @@ const LoginPage = () => {
         <button 
           type="submit" 
           disabled={loading}
-          className="btn-primary w-full shadow-lg shadow-primary/20 mt-4 disabled:opacity-70 disabled:cursor-not-allowed"
+          className="btn-primary w-full shadow-lg shadow-primary/20 mt-4 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center"
         >
-          {loading ? 'Logging in...' : 'Login'}
+          {loading ? (
+             <span className="flex items-center gap-2">
+               <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+               </svg>
+               Logging in...
+             </span>
+          ) : 'Login'}
         </button>
       </form>
 
