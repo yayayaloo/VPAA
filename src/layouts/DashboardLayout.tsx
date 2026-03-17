@@ -37,7 +37,7 @@ const DashboardLayout = () => {
     }
   };
 
-  // NEW: Function to get the current formatted date (e.g., "Monday, Mar 16, 2026")
+ 
   const getCurrentDate = () => {
     const options: Intl.DateTimeFormatOptions = { 
       weekday: 'long', 
@@ -56,7 +56,7 @@ const DashboardLayout = () => {
 
   return (
     <div className="flex h-screen bg-[#f3f4f6]">
-      {/* Sidebar */}
+     
       <aside className="w-64 bg-sidebar text-white flex flex-col shrink-0">
         <div className="p-8 flex flex-col items-center border-b border-white/10">
           <img src="/assets/gc-logo.png" alt="Logo" className="w-16 h-16 mb-4" />
@@ -104,9 +104,8 @@ const DashboardLayout = () => {
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
+    
         <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shadow-sm">
           <div>
             <h2 className="text-lg font-bold text-sidebar">{getPageTitle()}</h2>
@@ -114,7 +113,7 @@ const DashboardLayout = () => {
           </div>
 
           <div className="flex items-center gap-6">
-            {/* UPDATED: Calling the dynamic date function */}
+            
             <div className="flex items-center gap-2 text-slate-500 bg-slate-50 px-4 py-2 rounded-full border border-slate-200">
               <Calendar size={16} />
               <span className="text-sm font-semibold">{getCurrentDate()}</span>
@@ -127,13 +126,12 @@ const DashboardLayout = () => {
           </div>
         </header>
 
-        {/* Scrollable Content */}
+    
         <main className="flex-1 overflow-y-auto p-8 relative">
           <Outlet />
         </main>
       </div>
 
-      {/* Logout Confirmation Modal */}
       {showLogoutModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">

@@ -4,21 +4,24 @@ import {
   Filter, 
   Users, 
   FileText, 
-  Eye
+  Eye,
+  Loader2
 } from 'lucide-react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../firebase'; // Adjust this path if necessary
+import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase'; 
 import FacultyDetailModal from '../components/FacultyDetailModal';
 
-// Define the shape of your Faculty data
-interface Faculty {
-  id: string;
+
+export interface Faculty {
+  id: string; 
+  application_id: string;
   ranking: number;
   name: string;
   department: string;
   points: string;
+  rawPoints: number;
   status: string;
-  originalData?: any; // Keeps the raw Firestore data handy for the modal
+  originalData?: any; 
 }
 
 const FacultyReviewPage = () => {
@@ -26,61 +29,120 @@ const FacultyReviewPage = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFaculty, setSelectedFaculty] = useState<Faculty | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
-    const fetchFaculty = async () => {
+    const fetchFacultyForActiveCycle = async () => {
       try {
-        // Fetch only users who have the role "Faculty"
-        const q = query(collection(db, 'users'), where('role', '==', 'Faculty'));
-        const querySnapshot = await getDocs(q);
+        setLoading(true);
         
-        const fetchedFaculty: Faculty[] = querySnapshot.docs.map((doc, index) => {
-          const data = doc.data();
+       
+        const cycleQ = query(collection(db, 'ranking_cycles'), where('status', '==', 'open'));
+        const cycleSnap = await getDocs(cycleQ);
+        
+        if (cycleSnap.empty) {
+          setFacultyData([]);
+          setLoading(false);
+          return;
+        }
+        
+        const activeCycleId = cycleSnap.docs[0].id;
+
+    
+        const appsQ = query(collection(db, 'applications'), where('cycle_id', '==', activeCycleId));
+        const appsSnap = await getDocs(appsQ);
+        
+        
+        const facultyPromises = appsSnap.docs.map(async (appDoc) => {
+          const appData = appDoc.data();
+          let facultyName = "UNKNOWN FACULTY";
+          let department = `Dept ${appData.department_id || '?'}`;
           
+          const userId = appData.faculty_id || appData.user_id;
+
+          if (userId) {
+            const userRef = doc(db, 'users', userId);
+            const userSnap = await getDoc(userRef);
+            
+            if (userSnap.exists()) {
+              const userData = userSnap.data();
+              
+              facultyName = userData.name 
+                ? userData.name 
+                : `${userData.name_last || ''}, ${userData.name_first || ''}`;
+                
+             
+              department = userData.department || (userData.department_id === "1" ? 'CCS' : department);
+            }
+          }
+
+         
+          const rawPts = Number(appData.final_score || appData.total_points || 0);
+
+          
+          let displayStatus = appData.status || 'Draft';
+          if (['Approved_Unpublished', 'Published'].includes(appData.status)) {
+            displayStatus = 'Reviewed';
+          } else if (appData.status === 'Pending_VPAA') {
+            displayStatus = 'Under Review';
+          }
+
           return {
-            id: doc.id,
-            ranking: index + 1, // Temporary ranking based on fetch order
-            name: `${data.name_last || ''}, ${data.name_first || ''}`.toUpperCase(),
-            // Map department_id to a string, or fallback
-            department: data.department_id === "1" ? 'CCS' : data.department_id || 'N/A', 
-            // Fallbacks for fields not yet in your DB screenshot
-            points: data.total_points ? `${data.total_points}/200` : '0.00/200',
-            status: data.review_status || 'Under Review',
-            originalData: data // Pass this to your modal later
+            id: userId || appDoc.id,
+            application_id: appDoc.id,
+            ranking: 0, 
+            name: facultyName.toUpperCase(),
+            department: department, 
+            points: `${rawPts.toFixed(2)}/200`,
+            rawPoints: rawPts,
+            status: displayStatus,
+            originalData: { ...appData, id: appDoc.id } 
           };
         });
 
+     
+        let fetchedFaculty = await Promise.all(facultyPromises);
+
+       
+        fetchedFaculty.sort((a, b) => b.rawPoints - a.rawPoints);
+        
+       
+        fetchedFaculty = fetchedFaculty.map((faculty, index) => ({
+          ...faculty,
+          ranking: index + 1
+        }));
+
         setFacultyData(fetchedFaculty);
       } catch (error) {
-        console.error("Error fetching faculty:", error);
+        console.error("Error fetching faculty applications:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchFaculty();
+    fetchFacultyForActiveCycle();
   }, []);
 
-  // Calculate dynamic stats based on fetched data
+  
   const stats = [
     { 
       label: 'Under Review', 
-      value: facultyData.filter(f => f.status === 'Under Review').length, 
-      sub: 'Under Review Faculty', 
+      value: facultyData.filter(f => f.status.toLowerCase().includes('review') && f.status !== 'Reviewed').length, 
+      sub: 'Pending VPAA Evaluation', 
       icon: <Users className="text-emerald-600" />, 
       color: 'emerald' 
     },
     { 
       label: 'Reviewed', 
       value: facultyData.filter(f => f.status === 'Reviewed').length, 
-      sub: 'Reviewed Faculty', 
+      sub: 'Approved Applications', 
       icon: <Users className="text-emerald-600" />, 
       color: 'emerald' 
     },
     { 
       label: 'Total Faculty', 
       value: facultyData.length, 
-      sub: 'Total Faculty Rankers', 
+      sub: 'Current Cycle Applicants', 
       icon: <FileText className="text-emerald-600" />, 
       color: 'emerald' 
     },
@@ -91,8 +153,19 @@ const FacultyReviewPage = () => {
     setIsModalOpen(true);
   };
 
+  
+  const filteredFaculty = facultyData.filter(faculty => 
+    faculty.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    faculty.department.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   if (loading) {
-    return <div className="p-8 text-center text-slate-500">Loading faculty data...</div>;
+    return (
+      <div className="flex h-[80vh] items-center justify-center flex-col gap-4">
+        <Loader2 className="animate-spin text-emerald-600" size={40} />
+        <p className="text-sm font-semibold text-slate-500 animate-pulse">Loading active cycle and faculty data...</p>
+      </div>
+    );
   }
 
   return (
@@ -100,7 +173,7 @@ const FacultyReviewPage = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-start gap-4">
+          <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-start gap-4 hover:shadow-md transition-shadow">
             <div className="flex-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
               <h4 className="text-3xl font-black text-slate-800 mb-1">{stat.value}</h4>
@@ -124,8 +197,10 @@ const FacultyReviewPage = () => {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" 
-                placeholder="Search faculty by name..."
-                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary transition-all text-sm"
+                placeholder="Search faculty by name or department..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm"
               />
             </div>
 
@@ -149,16 +224,16 @@ const FacultyReviewPage = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {facultyData.length === 0 ? (
+              {filteredFaculty.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-8 py-8 text-center text-sm text-slate-500">
-                    No faculty members found.
+                  <td colSpan={6} className="px-8 py-12 text-center text-sm font-medium text-slate-500">
+                    No faculty applications found for the active cycle yet.
                   </td>
                 </tr>
               ) : (
-                facultyData.map((faculty) => (
+                filteredFaculty.map((faculty) => (
                   <tr key={faculty.id} className="hover:bg-slate-50/80 transition-colors group">
-                    <td className="px-8 py-5 text-sm font-bold text-slate-400">{faculty.ranking}</td>
+                    <td className="px-8 py-5 text-sm font-bold text-slate-400">#{faculty.ranking}</td>
                     <td className="px-8 py-5 text-[11px] font-black text-slate-700 tracking-tight">{faculty.name}</td>
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.department}</td>
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.points}</td>
@@ -166,16 +241,18 @@ const FacultyReviewPage = () => {
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${
                         faculty.status === 'Reviewed' 
                           ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                          : faculty.status === 'Under Review'
+                          ? 'bg-amber-50 text-amber-600 border-amber-100'
                           : 'bg-slate-100 text-slate-500 border-slate-200'
                       }`}>
-                        {faculty.status}
+                        {faculty.status.replace('_', ' ')}
                       </span>
                     </td>
                     <td className="px-8 py-5">
                       <div className="flex justify-center">
                         <button 
                           onClick={() => openModal(faculty)}
-                          className="p-2 text-primary hover:bg-primary/5 rounded-lg transition-all"
+                          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
                         >
                           <Eye size={20} />
                         </button>

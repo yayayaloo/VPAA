@@ -1,41 +1,83 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, Search, Filter, CheckCircle2, User, Loader2 } from 'lucide-react';
+import { ArrowLeft, Download, Search, Filter, CheckCircle2, User, Loader2, X } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../firebase'; // Ensure correct path
+import { db } from '../firebase';
+import FacultyDetailModal from '../components/FacultyDetailModal'; 
+
+
+interface CycleStats {
+  totalFaculty: number;
+  completed: number;
+  underReview: number;
+  pending: number;
+  avgPoints: number;
+}
+
+interface CycleState {
+  title: string;
+  semester: string;
+  year: string;
+  status: string;
+  stats: CycleStats;
+}
+
+interface RankingEntry {
+  id: string; 
+  name: string;
+  department: string;
+  points: number;
+  dbStatus: string;
+  originalData: any;
+}
 
 const CycleDetailsPage = () => {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   
   const [loading, setLoading] = useState(true);
-  const [cycle, setCycle] = useState({
+  const [searchTerm, setSearchTerm] = useState("");
+  
+
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [departmentFilter, setDepartmentFilter] = useState("All");
+
+
+const [isFacultyModalOpen, setIsFacultyModalOpen] = useState(false);
+const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null);
+
+  const [cycle, setCycle] = useState<CycleState>({
     title: '',
+    semester: '',
+    year: '',
     status: '',
     stats: { totalFaculty: 0, completed: 0, underReview: 0, pending: 0, avgPoints: 0 }
   });
-  const [facultyRankings, setFacultyRankings] = useState<any[]>([]);
+  const [facultyRankings, setFacultyRankings] = useState<RankingEntry[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchCycleDetails = async () => {
       if (!id) return;
       
       try {
         setLoading(true);
         
-        // 1. Fetch Cycle Details
+       
         const cycleRef = doc(db, 'ranking_cycles', id);
         const cycleSnap = await getDoc(cycleRef);
         
         if (!cycleSnap.exists()) {
           console.error("Cycle not found");
-          setLoading(false);
+          if (isMounted) setLoading(false);
           return;
         }
         
         const cycleData = cycleSnap.data();
 
-        // 2. Fetch all Applications tied to this cycle
+     
         const appsRef = collection(db, 'applications');
         const q = query(appsRef, where('cycle_id', '==', id));
         const appsSnap = await getDocs(q);
@@ -45,11 +87,25 @@ const CycleDetailsPage = () => {
         let underReviewCount = 0;
         let pendingCount = 0;
 
-        // 3. Process applications and fetch associated User data
-        const rankingsPromises = appsSnap.docs.map(async (appDoc) => {
+      
+        const uniqueFacultyIds = [...new Set(
+          appsSnap.docs.map(doc => doc.data().faculty_id).filter(Boolean)
+        )];
+        
+        const userCache: Record<string, any> = {};
+        
+   
+        await Promise.all(uniqueFacultyIds.map(async (facultyId) => {
+          const userRef = doc(db, 'users', facultyId as string);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            userCache[facultyId as string] = userSnap.data();
+          }
+        }));
+
+        const resolvedRankings: RankingEntry[] = appsSnap.docs.map((appDoc) => {
           const appData = appDoc.data();
           
-          // Calculate stats buckets based on your ERD statuses
           totalScore += Number(appData.final_score) || 0;
           
           if (['Approved_Unpublished', 'Published'].includes(appData.status)) {
@@ -60,19 +116,25 @@ const CycleDetailsPage = () => {
             pendingCount++;
           }
 
-          // Fetch User Details to get the real name
           let facultyName = "Unknown Faculty";
           let department = `Dept ${appData.department_id || '?'}`;
           
-          if (appData.faculty_id) {
-            const userRef = doc(db, 'users', appData.faculty_id);
-            const userSnap = await getDoc(userRef);
-            if (userSnap.exists()) {
-              const userData = userSnap.data();
-              facultyName = `${userData.name_last}, ${userData.name_first}`;
-              
-              // Temporary mapping: you can later fetch from your 'departments' collection
-              if (userData.department_id === "1") department = "CCS";
+          if (appData.faculty_id && userCache[appData.faculty_id]) {
+            const userData = userCache[appData.faculty_id];
+
+            if (userData.name) {
+              facultyName = userData.name;
+            } else if (userData.name_last || userData.name_first) {
+              facultyName = `${userData.name_last || ''}, ${userData.name_first || ''}`.trim();
+              if (facultyName.endsWith(',')) facultyName = facultyName.slice(0, -1);
+            }
+            
+            if (userData.department) {
+              department = userData.department;
+            } else if (userData.department_id === "1") {
+              department = "CCS";
+            } else if (userData.department_id) {
+              department = `Dept ${userData.department_id}`;
             }
           }
 
@@ -81,44 +143,45 @@ const CycleDetailsPage = () => {
             name: facultyName,
             department: department,
             points: Number(appData.final_score) || 0,
-            dbStatus: appData.status,// Keep original status for logic
+            dbStatus: appData.status,
             originalData: appData
           };
         });
-
-        const resolvedRankings = await Promise.all(rankingsPromises);
         
-        // Sort highest points to lowest
         resolvedRankings.sort((a, b) => b.points - a.points);
-
         const totalFaculty = appsSnap.size;
 
-        setCycle({
-          title: cycleData.title || `${cycleData.semester} ${cycleData.year}`,
-          status: cycleData.status === 'open' ? 'In Progress' : 'Closed',
-          stats: {
-            totalFaculty,
-            completed: completedCount,
-            underReview: underReviewCount,
-            pending: pendingCount,
-           // ✅ The fix:
-avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
-          }
-        });
-
-        setFacultyRankings(resolvedRankings);
+        if (isMounted) {
+          setCycle({
+            title: cycleData.title || 'Ranking Cycle',
+            semester: cycleData.semester || 'N/A',
+            year: cycleData.year || 'N/A',
+            status: cycleData.status === 'open' ? 'In Progress' : 'Closed',
+            stats: {
+              totalFaculty,
+              completed: completedCount,
+              underReview: underReviewCount,
+              pending: pendingCount,
+              avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
+            }
+          });
+          setFacultyRankings(resolvedRankings);
+        }
 
       } catch (error) {
         console.error("Error fetching cycle details:", error);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchCycleDetails();
+
+    return () => {
+      isMounted = false;
+    };
   }, [id]);
 
-  // Helper to map DB status to UI Badge
   const getStatusDisplay = (dbStatus: string) => {
     switch(dbStatus) {
       case 'Approved_Unpublished':
@@ -127,10 +190,53 @@ avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
       case 'Pending_VPAA':
         return { label: 'Under Review', classes: 'bg-amber-50 text-amber-600 border border-amber-100', icon: false };
       default:
-        // Handles 'Draft', 'Submitted', 'Pending_HR', etc.
         return { label: dbStatus.replace('_', ' '), classes: 'bg-slate-50 text-slate-500 border border-slate-200', icon: false };
     }
   };
+
+  const uniqueDepartments = ['All', ...new Set(facultyRankings.map(f => f.department))].sort();
+  const uniqueStatuses = ['All', ...new Set(facultyRankings.map(f => f.dbStatus))].sort();
+
+  const filteredRankings = facultyRankings.filter(faculty => {
+    const matchesSearch = faculty.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          faculty.department.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "All" || faculty.dbStatus === statusFilter;
+    const matchesDept = departmentFilter === "All" || faculty.department === departmentFilter;
+    
+    return matchesSearch && matchesStatus && matchesDept;
+  });
+
+  const handleExportCSV = () => {
+    if (filteredRankings.length === 0) return;
+    const headers = ['Rank', 'Faculty Name', 'Department', 'Total Points', 'Status'];
+    const rows = filteredRankings.map((faculty, index) => [
+      index + 1,
+      `"${faculty.name}"`, 
+      `"${faculty.department}"`,
+      faculty.points,
+      faculty.dbStatus
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${cycle.title.replace(/\s+/g, '_')}_Rankings.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const activeFilterCount = (statusFilter !== "All" ? 1 : 0) + (departmentFilter !== "All" ? 1 : 0);
+
+ 
+const handleViewSubmission = (faculty: RankingEntry) => {
+  setSelectedFaculty(faculty);
+  setIsFacultyModalOpen(true);
+};
+
+const handleCloseFacultyModal = () => {
+  setIsFacultyModalOpen(false);
+  setSelectedFaculty(null);
+};
 
   if (loading) {
     return (
@@ -142,23 +248,25 @@ avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
   }
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* Top Navigation */}
+    <div className="space-y-8 pb-12 relative">
       <div className="flex items-center gap-4">
         <button 
           onClick={() => navigate(-1)}
-          className="p-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-primary hover:border-primary transition-all shadow-sm"
+          className="p-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-primary hover:border-primary transition-all shadow-sm cursor-pointer"
         >
           <ArrowLeft size={20} />
         </button>
         <div>
           <h2 className="text-xl font-bold text-sidebar">{cycle.title}</h2>
+          <p className="text-[11px] font-bold text-primary uppercase tracking-wider mt-0.5 mb-1">
+            {cycle.semester} • AY {cycle.year}
+          </p>
           <p className="text-xs text-slate-500">Comprehensive cycle report and faculty rankings</p>
         </div>
       </div>
 
-      {/* Cycle Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {/* ... (Overview Cards remain exactly the same) ... */}
         <div className="bg-primary/5 border border-primary/20 p-6 rounded-2xl">
           <p className="text-[10px] font-bold text-primary uppercase tracking-wider mb-2">Cycle Status</p>
           <div className="flex items-center gap-2">
@@ -166,12 +274,10 @@ avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
             <h4 className="text-xl font-bold text-sidebar">{cycle.status}</h4>
           </div>
         </div>
-        
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Total Faculty</p>
           <h4 className="text-2xl font-bold text-sidebar">{cycle.stats.totalFaculty}</h4>
         </div>
-
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Completion Rate</p>
           <div className="flex items-end gap-2">
@@ -181,14 +287,12 @@ avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
             <p className="text-xs text-slate-400 mb-1">({cycle.stats.completed}/{cycle.stats.totalFaculty})</p>
           </div>
         </div>
-
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Avg. Score</p>
           <h4 className="text-2xl font-bold text-sidebar">{cycle.stats.avgPoints}</h4>
         </div>
       </div>
 
-      {/* Faculty Rankings List */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-sidebar/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <h3 className="text-base font-bold text-sidebar">Faculty Rankings</h3>
@@ -197,14 +301,30 @@ avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input 
                 type="text" 
-                placeholder="Search faculty..." 
-                className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="Search faculty or dept..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary transition-all"
               />
             </div>
-            <button className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 hover:text-primary transition-all">
+            
+            <button 
+              onClick={() => setIsFilterModalOpen(true)}
+              className="relative p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 hover:text-primary transition-all cursor-pointer"
+            >
               <Filter size={16} />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-primary text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
-            <button className="flex items-center gap-2 px-4 py-1.5 bg-sidebar text-white rounded-lg text-xs font-bold hover:bg-sidebar-dark transition-all">
+
+            <button 
+              onClick={handleExportCSV}
+              disabled={filteredRankings.length === 0}
+              className="flex items-center gap-2 px-4 py-1.5 bg-sidebar text-white rounded-lg text-xs font-bold hover:bg-sidebar-dark transition-all disabled:opacity-50 cursor-pointer"
+            >
               <Download size={14} />
               Export
             </button>
@@ -224,16 +344,15 @@ avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {facultyRankings.length === 0 ? (
+              {filteredRankings.length === 0 ? (
                  <tr>
                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-slate-500">
-                     No faculty applications found for this cycle.
+                     {searchTerm || activeFilterCount > 0 ? 'No faculty found matching your filters.' : 'No faculty applications found for this cycle.'}
                    </td>
                  </tr>
               ) : (
-                facultyRankings.map((faculty, index) => {
+                filteredRankings.map((faculty, index) => {
                   const statusUI = getStatusDisplay(faculty.dbStatus);
-                  
                   return (
                     <tr key={faculty.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
@@ -267,8 +386,14 @@ avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
                           {statusUI.label}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right text-xs font-bold text-primary hover:underline cursor-pointer">
-                        View Submission
+                      <td className="px-6 py-4 text-right">
+                        
+                       <button 
+  onClick={() => handleViewSubmission(faculty)}
+  className="text-xs font-bold text-primary hover:underline cursor-pointer"
+>
+  View Submission
+</button>
                       </td>
                     </tr>
                   );
@@ -278,6 +403,49 @@ avgPoints: totalFaculty > 0 ? Number((totalScore / totalFaculty).toFixed(1)) : 0
           </table>
         </div>
       </div>
+
+    
+      {isFilterModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+         
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Filter size={16} className="text-primary" />
+                Filter Rankings
+              </h3>
+              <button onClick={() => setIsFilterModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Department</label>
+                <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
+                  {uniqueDepartments.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Application Status</label>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
+                  {uniqueStatuses.map(status => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex gap-3">
+              <button onClick={() => { setDepartmentFilter("All"); setStatusFilter("All"); }} className="flex-1 py-2 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">Reset</button>
+              <button onClick={() => setIsFilterModalOpen(false)} className="flex-1 py-2 text-sm font-bold text-white bg-primary rounded-lg hover:bg-primary-dark cursor-pointer">Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
+{isFacultyModalOpen && selectedFaculty && (
+  <FacultyDetailModal 
+    faculty={selectedFaculty} 
+    onClose={handleCloseFacultyModal} 
+  />
+)}
+
     </div>
   );
 };

@@ -7,9 +7,9 @@ const AuthLayout = () => {
 
   return (
     <div className="flex min-h-screen bg-white">
-      {/* Left Panel: Gordon College Info (Visible on Large Screens) */}
+    
       <div className="hidden lg:flex w-1/2 bg-sidebar text-white p-12 flex-col justify-between relative overflow-hidden">
-        {/* Decorative Circles */}
+       
         <div className="absolute top-[-100px] left-[-100px] w-80 h-80 bg-white/5 rounded-full" />
         <div className="absolute bottom-[-50px] left-[10%] w-60 h-60 bg-white/5 rounded-full" />
         
@@ -138,7 +138,6 @@ const AuthLayout = () => {
         </div>
       </div>
 
-      {/* Right Panel: Content (Login/Reset Form) */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-surface">
         <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl shadow-slate-200/50 p-10 border border-slate-100">
           <Outlet />

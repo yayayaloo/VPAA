@@ -17,7 +17,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         setIsAuthenticated(true);
         
         try {
-          // Check if they still need to change their password
+      
           const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists() && userDoc.data().is_first_login === true) {
             setIsFirstLogin(true);
@@ -44,17 +44,17 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  // Not logged in? Send to login.
+
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Logged in but hasn't changed their temporary password? Force them to the set-password page.
+
   if (isFirstLogin) {
     return <Navigate to="/set-password" replace />;
   }
 
-  // Logged in and password is changed? Let them into the Dashboard!
+ 
   return <>{children}</>;
 };
 

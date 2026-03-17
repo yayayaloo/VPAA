@@ -33,7 +33,7 @@ const DashboardPage = () => {
       try {
         setLoading(true);
 
-        // 1. Fetch Ranking Cycles
+     
         const cyclesQuery = query(collection(db, 'ranking_cycles'));
         const cyclesSnapshot = await getDocs(cyclesQuery);
         
@@ -56,12 +56,11 @@ const DashboardPage = () => {
           };
         });
 
-        // Sort: Current cycles first, then closed cycles
+      
         fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
         setCycles(fetchedCycles);
 
-        // 2. Fetch Recent Activities (Assumes you have an 'activity_logs' collection)
-        // Ensure you create an index in Firebase if you use orderBy and limit together!
+     
         const logsQuery = query(
           collection(db, 'activity_logs'), 
           orderBy('timestamp', 'desc'), 
@@ -72,7 +71,7 @@ const DashboardPage = () => {
           const logsSnapshot = await getDocs(logsQuery);
           const fetchedLogs: ActivityLog[] = logsSnapshot.docs.map(doc => {
             const data = doc.data();
-            // Format timestamp nicely (e.g., "Today, 8:00 AM" or "Feb 1, 2026")
+            
             const logDate = data.timestamp?.toDate();
             const timeString = logDate ? logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown time';
 
@@ -87,7 +86,7 @@ const DashboardPage = () => {
           setActivities(fetchedLogs);
         } catch (logErr) {
           console.warn("Could not fetch activity logs. Make sure the 'activity_logs' collection exists.", logErr);
-          // Fallback to empty if collection doesn't exist yet so it doesn't crash the whole page
+         
           setActivities([]); 
         }
 
@@ -108,8 +107,8 @@ const DashboardPage = () => {
   return (
     <div className="space-y-10">
       {/* Ranking Cycle History Section */}
-      <section>
-        <div className="flex justify-between items-center mb-6">
+      <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
+        <div className=" flex justify-between items-center mb-6">
           <div>
             <h3 className="text-base font-bold text-sidebar">Ranking Cycle History</h3>
             <p className="text-xs text-slate-500">All cycles you have participated in or that are currently open</p>
@@ -174,13 +173,13 @@ const DashboardPage = () => {
                   </div>
                   
                   {cycle.isCurrent ? (
-                    // Redirects to the CycleDetailsPage we worked on previously!
+                 
                     <Link to={`/cycle/${cycle.id}`} className="bg-primary text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center gap-2">
-                      Review Submissions
+                      Sumbit Final Results 
                       <ArrowRight size={14} />
                     </Link>
                   ) : (
-                    <Link to={`/cycle/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group">
+                    <Link to={`/HistoryPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group">
                       See more
                       <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                     </Link>

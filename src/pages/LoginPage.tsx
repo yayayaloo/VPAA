@@ -16,7 +16,7 @@ const LoginPage = () => {
     e.preventDefault();
     setError('');
 
-    // Domain validation check
+    
     if (!email.endsWith('@gordoncollege.edu.ph')) {
       return setError('Please use your official college email.');
     }
@@ -24,25 +24,25 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      // 1. Authenticate the user
+     
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // 2. Fetch the user's document from Firestore to check their status
+     
       const userDocRef = doc(db, 'users', user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      // 3. Route them based on their first-login flag
+     
       if (userDocSnap.exists()) {
         const userData = userDocSnap.data();
         
      if (userData.is_first_login === true) {
-          navigate('/set-password'); // Send to Set Password page!
+          navigate('/set-password'); 
         } else {
-          navigate('/dashboard'); // Normal login, send to Dashboard
+          navigate('/dashboard'); 
         }
       } else {
-        // Fallback just in case they don't have a Firestore document yet
+        
         navigate('/dashboard'); 
       }
 

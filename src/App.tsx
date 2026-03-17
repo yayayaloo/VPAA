@@ -31,6 +31,7 @@ function App() {
           <Route path="/faculty-review" element={<FacultyReviewPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/history/:id" element={<CycleDetailsPage />} />
+          <Route path="/HistoryPage/:id" element={<HistoryPage />} />
         </Route>
 
         {/* Redirects */}

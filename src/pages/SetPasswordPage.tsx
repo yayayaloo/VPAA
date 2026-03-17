@@ -68,20 +68,20 @@ const SetPasswordPage = () => {
     try {
       setLoading(true);
 
-      // 1. Re-authenticate the user with their temporary password
+     
       const credential = EmailAuthProvider.credential(currentUser.email, tempPassword);
       await reauthenticateWithCredential(currentUser, credential);
 
-      // 2. Update their password in Firebase Auth
+     
       await updatePassword(currentUser, newPassword);
 
-      // 3. Update Firestore so they are no longer flagged for a password reset
+     
       const userRef = doc(db, 'users', currentUser.uid);
     await updateDoc(userRef, {
         is_first_login: false 
       });
 
-      // 4. Send them to the dashboard!
+     
       navigate('/dashboard');
 
     } catch (err: any) {
