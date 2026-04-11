@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore'; // ✨ NEW: Import Firestore methods
-import { auth, db } from '../firebase'; // ✨ NEW: Make sure db is imported
+import { supabase } from '../supabaseClient'; 
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -16,7 +14,7 @@ const LoginPage = () => {
     e.preventDefault();
     setError('');
 
-    
+    // Domain restriction validation
     if (!email.endsWith('@gordoncollege.edu.ph')) {
       return setError('Please use your official college email.');
     }
@@ -24,25 +22,36 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-     
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      // 1. Authenticate user using Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-     
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDocSnap = await getDoc(userDocRef);
+      if (authError) throw authError;
 
-     
-      if (userDocSnap.exists()) {
-        const userData = userDocSnap.data();
-        
-     if (userData.is_first_login === true) {
-          navigate('/set-password'); 
-        } else {
-          navigate('/dashboard'); 
-        }
+      const user = authData.user;
+
+      if (!user) {
+        throw new Error('Authentication failed.');
+      }
+
+      // 2. Fetch user details from the 'users' table
+      // maybeSingle() returns data if exactly one row is found, or null if zero rows (without throwing an error)
+      const { data: userData, error: dbError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle(); 
+
+      if (dbError) {
+        console.error("Database error:", dbError);
+      }
+
+      // 3. Route user based on their login status
+      if (userData && userData.is_first_login === true) {
+        navigate('/set-password'); 
       } else {
-        
         navigate('/dashboard'); 
       }
 

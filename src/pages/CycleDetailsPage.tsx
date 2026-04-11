@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, Search, Filter, CheckCircle2, User, Loader2, X } from 'lucide-react';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
+// Replaced Firebase imports with Supabase
+import { supabase } from '../supabaseClient'; // Adjust path as needed
 import FacultyDetailModal from '../components/FacultyDetailModal'; 
-
 
 interface CycleStats {
   totalFaculty: number;
@@ -38,14 +37,12 @@ const CycleDetailsPage = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   
-
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("All");
   const [departmentFilter, setDepartmentFilter] = useState("All");
 
-
-const [isFacultyModalOpen, setIsFacultyModalOpen] = useState(false);
-const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null);
+  const [isFacultyModalOpen, setIsFacultyModalOpen] = useState(false);
+  const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null);
 
   const [cycle, setCycle] = useState<CycleState>({
     title: '',
@@ -65,47 +62,44 @@ const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null
       try {
         setLoading(true);
         
-       
-        const cycleRef = doc(db, 'ranking_cycles', id);
-        const cycleSnap = await getDoc(cycleRef);
+        // 1. Fetch Cycle Details from Supabase
+        const { data: cycleData, error: cycleError } = await supabase
+          .from('ranking_cycles')
+          .select('*')
+          .eq('cycle_id', id)
+          .single();
         
-        if (!cycleSnap.exists()) {
-          console.error("Cycle not found");
+        if (cycleError || !cycleData) {
+          console.error("Cycle not found or error fetching:", cycleError);
           if (isMounted) setLoading(false);
           return;
         }
         
-        const cycleData = cycleSnap.data();
-
-     
-        const appsRef = collection(db, 'applications');
-        const q = query(appsRef, where('cycle_id', '==', id));
-        const appsSnap = await getDocs(q);
+        // 2. Fetch Applications with Joined User and Department Data
+        // This replaces the multiple Firebase reads with a single relational query
+        const { data: appsData, error: appsError } = await supabase
+          .from('applications')
+          .select(`
+            *,
+            users:faculty_id (
+              name_first,
+              name_last,
+              department_id,
+              departments:department_id (
+                department_name
+              )
+            )
+          `)
+          .eq('cycle_id', id);
         
+        if (appsError) throw appsError;
+
         let totalScore = 0;
         let completedCount = 0;
         let underReviewCount = 0;
         let pendingCount = 0;
 
-      
-        const uniqueFacultyIds = [...new Set(
-          appsSnap.docs.map(doc => doc.data().faculty_id).filter(Boolean)
-        )];
-        
-        const userCache: Record<string, any> = {};
-        
-   
-        await Promise.all(uniqueFacultyIds.map(async (facultyId) => {
-          const userRef = doc(db, 'users', facultyId as string);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            userCache[facultyId as string] = userSnap.data();
-          }
-        }));
-
-        const resolvedRankings: RankingEntry[] = appsSnap.docs.map((appDoc) => {
-          const appData = appDoc.data();
-          
+        const resolvedRankings: RankingEntry[] = (appsData || []).map((appData: any) => {
           totalScore += Number(appData.final_score) || 0;
           
           if (['Approved_Unpublished', 'Published'].includes(appData.status)) {
@@ -116,30 +110,22 @@ const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null
             pendingCount++;
           }
 
-          let facultyName = "Unknown Faculty";
-          let department = `Dept ${appData.department_id || '?'}`;
-          
-          if (appData.faculty_id && userCache[appData.faculty_id]) {
-            const userData = userCache[appData.faculty_id];
+          // Parse the joined user and department data
+          const user = appData.users || {};
+          const departmentData = user.departments || {};
 
-            if (userData.name) {
-              facultyName = userData.name;
-            } else if (userData.name_last || userData.name_first) {
-              facultyName = `${userData.name_last || ''}, ${userData.name_first || ''}`.trim();
-              if (facultyName.endsWith(',')) facultyName = facultyName.slice(0, -1);
-            }
-            
-            if (userData.department) {
-              department = userData.department;
-            } else if (userData.department_id === "1") {
-              department = "CCS";
-            } else if (userData.department_id) {
-              department = `Dept ${userData.department_id}`;
-            }
+          let facultyName = "Unknown Faculty";
+          if (user.name_last || user.name_first) {
+            facultyName = `${user.name_last || ''}, ${user.name_first || ''}`.trim();
+            if (facultyName.endsWith(',')) facultyName = facultyName.slice(0, -1);
           }
 
+          // Fallback logic for department parsing based on your schema
+          let department = departmentData.department_name || 
+            (user.department_id ? `Dept ${user.department_id}` : 'Unknown Dept');
+
           return {
-            id: appDoc.id,
+            id: String(appData.application_id), // Using standard SQL primary key
             name: facultyName,
             department: department,
             points: Number(appData.final_score) || 0,
@@ -149,7 +135,7 @@ const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null
         });
         
         resolvedRankings.sort((a, b) => b.points - a.points);
-        const totalFaculty = appsSnap.size;
+        const totalFaculty = appsData ? appsData.length : 0;
 
         if (isMounted) {
           setCycle({
@@ -169,7 +155,7 @@ const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null
         }
 
       } catch (error) {
-        console.error("Error fetching cycle details:", error);
+        console.error("Error fetching cycle details from Supabase:", error);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -227,16 +213,15 @@ const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null
 
   const activeFilterCount = (statusFilter !== "All" ? 1 : 0) + (departmentFilter !== "All" ? 1 : 0);
 
- 
-const handleViewSubmission = (faculty: RankingEntry) => {
-  setSelectedFaculty(faculty);
-  setIsFacultyModalOpen(true);
-};
+  const handleViewSubmission = (faculty: RankingEntry) => {
+    setSelectedFaculty(faculty);
+    setIsFacultyModalOpen(true);
+  };
 
-const handleCloseFacultyModal = () => {
-  setIsFacultyModalOpen(false);
-  setSelectedFaculty(null);
-};
+  const handleCloseFacultyModal = () => {
+    setIsFacultyModalOpen(false);
+    setSelectedFaculty(null);
+  };
 
   if (loading) {
     return (
@@ -266,7 +251,6 @@ const handleCloseFacultyModal = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {/* ... (Overview Cards remain exactly the same) ... */}
         <div className="bg-primary/5 border border-primary/20 p-6 rounded-2xl">
           <p className="text-[10px] font-bold text-primary uppercase tracking-wider mb-2">Cycle Status</p>
           <div className="flex items-center gap-2">
@@ -387,13 +371,12 @@ const handleCloseFacultyModal = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        
                        <button 
-  onClick={() => handleViewSubmission(faculty)}
-  className="text-xs font-bold text-primary hover:underline cursor-pointer"
->
-  View Submission
-</button>
+                         onClick={() => handleViewSubmission(faculty)}
+                         className="text-xs font-bold text-primary hover:underline cursor-pointer"
+                       >
+                         View Submission
+                       </button>
                       </td>
                     </tr>
                   );
@@ -404,10 +387,8 @@ const handleCloseFacultyModal = () => {
         </div>
       </div>
 
-    
       {isFilterModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-         
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <h3 className="font-bold text-slate-800 flex items-center gap-2">
@@ -439,13 +420,12 @@ const handleCloseFacultyModal = () => {
           </div>
         </div>
       )}
-{isFacultyModalOpen && selectedFaculty && (
-  <FacultyDetailModal 
-    faculty={selectedFaculty} 
-    onClose={handleCloseFacultyModal} 
-  />
-)}
-
+      {isFacultyModalOpen && selectedFaculty && (
+        <FacultyDetailModal 
+          faculty={selectedFaculty} 
+          onClose={handleCloseFacultyModal} 
+        />
+      )}
     </div>
   );
 };

@@ -11,8 +11,7 @@ import {
   Loader2 
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { collection, getDocs, getDoc, doc, updateDoc } from 'firebase/firestore'; 
-import { db } from '../firebase'; 
+import { supabase } from '../supabaseClient'; 
 
 interface FacultyDetailModalProps {
   faculty: any; 
@@ -40,34 +39,44 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       try {
         setLoading(true);
         
-       
         const userId = faculty.user_id || faculty.userId || faculty.id; 
         
+        // 1. Fetch User Data
         if (userId) {
-          const userRef = doc(db, 'users', userId);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            setFullUserData(userSnap.data());
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', userId)
+            .single();
+
+          if (!userError && userData) {
+            setFullUserData(userData);
           } else {
             console.log("No user document found for ID:", userId);
           }
         }
 
-     
-        const submissionsRef = collection(db, 'applications', faculty.id, 'area_submissions');
-        const snap = await getDocs(submissionsRef);
+        // 2. Fetch Area Submissions 
+        // Assuming your 'area_submissions' table has an 'application_id' foreign key
+        const { data: submissionsData, error: subError } = await supabase
+          .from('area_submissions')
+          .select('*')
+          .eq('application_id', faculty.id);
         
+        if (subError) throw subError;
+
         const fetchedData: Record<string, any> = {};
-        snap.forEach(doc => {
-           const docData = doc.data();
-           const areaId = String(docData.area_id || doc.id.replace('area_', ''));
-           fetchedData[areaId] = docData;
-        });
+        if (submissionsData) {
+          submissionsData.forEach(docData => {
+            // Using area_id or parsing id just like the previous Firestore logic
+             const areaId = String(docData.area_id || (docData.id && String(docData.id).replace('area_', '')));
+             fetchedData[areaId] = docData;
+          });
+        }
 
         setAreas(prevAreas => prevAreas.map(area => {
           const submission = fetchedData[area.id];
           if (submission) {
-          
             const currentPoints = submission.vpaa_mark ?? submission.hr_mark ?? 0;
             return {
               ...area,
@@ -91,11 +100,13 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     if (!faculty?.id) return;
     try {
       setUpdating(true);
-      const appRef = doc(db, 'applications', faculty.id);
       
-      await updateDoc(appRef, {
-        status: 'Reviewed' 
-      });
+      const { error } = await supabase
+        .from('applications')
+        .update({ status: 'Reviewed' })
+        .eq('id', faculty.id);
+      
+      if (error) throw error;
       
       if (onStatusUpdate) onStatusUpdate();
       onClose(); 
@@ -108,10 +119,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
 
   if (!faculty) return null;
 
- 
   const data = fullUserData || faculty?.originalData || faculty || {};
-
- 
   const totalPoints = areas.reduce((sum, area) => sum + area.current, 0);
 
   return (

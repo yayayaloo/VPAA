@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle2, Search, Filter, ArrowRight, Calendar, Download, Loader2, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase'; 
+import { supabase } from '../supabaseClient'; 
 
 const HistoryPage = () => {
   const [cycles, setCycles] = useState<any[]>([]);
@@ -17,23 +16,33 @@ const HistoryPage = () => {
   useEffect(() => {
     const fetchHistoryData = async () => {
       try {
-     
-        const cyclesSnap = await getDocs(collection(db, 'ranking_cycles'));
-        const appsSnap = await getDocs(collection(db, 'applications'));
+        setLoading(true);
+
+        // Fetch data from Supabase
+        const [
+          { data: cyclesData, error: cyclesError },
+          { data: appsData, error: appsError }
+        ] = await Promise.all([
+          supabase.from('ranking_cycles').select('*'),
+          supabase.from('applications').select('*')
+        ]);
+
+        if (cyclesError) throw cyclesError;
+        if (appsError) throw appsError;
+
+        const safeCyclesData = cyclesData || [];
+        const safeAppsData = appsData || [];
         
-        const appsData = appsSnap.docs.map(doc => doc.data());
         const fetchedCycles: any[] = [];
-        
         let highestAverage = 0;
 
-        cyclesSnap.forEach(doc => {
-          const data = doc.data();
-          
-   
-          const cycleApps = appsData.filter(app => app.cycle_id === doc.id);
+        safeCyclesData.forEach(data => {
+          // Find all applications belonging to this cycle
+          // Using String() ensures matching works even if one is an int and the other a string
+          const cycleApps = safeAppsData.filter(app => String(app.cycle_id) === String(data.id));
           const totalFaculty = cycleApps.length;
           
-          
+          // Calculate total points
           const totalPoints = cycleApps.reduce((sum, app) => {
             const score = Number(app.final_score) || Number(app.total_points) || 0;
             return sum + score;
@@ -46,7 +55,7 @@ const HistoryPage = () => {
           }
 
           fetchedCycles.push({
-            id: doc.id,
+            id: String(data.id),
             title: data.title || `${data.semester || 'Semester'} ${data.year || 'Year'}`,
             semester: data.semester || 'N/A',
             year: data.year || 'N/A',
@@ -54,19 +63,21 @@ const HistoryPage = () => {
             started: formatDate(data.start_date),
             published: formatDate(data.deadline || data.end_date), 
             totalFaculty,
-            avgPoints
+            avgPoints,
+            rawStartDate: data.start_date // Keeping raw date for accurate sorting
           });
         });
 
-        
-        fetchedCycles.sort((a, b) => new Date(b.started).getTime() - new Date(a.started).getTime());
+        // Sort by start date, newest first
+        fetchedCycles.sort((a, b) => new Date(b.rawStartDate).getTime() - new Date(a.rawStartDate).getTime());
 
         setCycles(fetchedCycles);
         setStats({
           totalCycles: fetchedCycles.length,
-          avgParticipation: fetchedCycles.length > 0 ? (appsData.length / fetchedCycles.length).toFixed(1) : '0',
+          avgParticipation: fetchedCycles.length > 0 ? (safeAppsData.length / fetchedCycles.length).toFixed(1) : '0',
           highestAvg: highestAverage.toFixed(1)
         });
+        
       } catch (error) {
         console.error("Error fetching history:", error);
       } finally {
@@ -77,16 +88,12 @@ const HistoryPage = () => {
     fetchHistoryData();
   }, []);
 
- 
-  const formatDate = (dateField: any) => {
-    if (!dateField) return 'N/A';
-    if (dateField.toDate) {
-      return dateField.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    }
-    return new Date(dateField).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // Simplified date formatter for Supabase's standard ISO strings
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  
   const filteredCycles = cycles.filter(cycle => 
     cycle.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     cycle.semester.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -169,7 +176,7 @@ const HistoryPage = () => {
                   </div>
                   <div>
                     <h4 className="text-lg font-black text-slate-800 mb-0.5">{cycle.title}</h4>
-                    {/* 👇 Explicitly showing what cycle this is */}
+                    {/* Explicitly showing what cycle this is */}
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                       {cycle.semester} • AY {cycle.year}
                     </p>

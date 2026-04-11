@@ -7,10 +7,8 @@ import {
   Eye,
   Loader2
 } from 'lucide-react';
-import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase'; 
+import { supabase } from '../supabaseClient'; 
 import FacultyDetailModal from '../components/FacultyDetailModal';
-
 
 export interface Faculty {
   id: string; 
@@ -36,50 +34,58 @@ const FacultyReviewPage = () => {
       try {
         setLoading(true);
         
-       
-        const cycleQ = query(collection(db, 'ranking_cycles'), where('status', '==', 'open'));
-        const cycleSnap = await getDocs(cycleQ);
+        // 1. Fetch the active cycle
+        const { data: cycleSnap, error: cycleError } = await supabase
+          .from('ranking_cycles')
+          .select('id') // Change to 'cycle_id' if that is your primary key
+          .eq('status', 'open')
+          .limit(1);
+          
+        if (cycleError) throw cycleError;
         
-        if (cycleSnap.empty) {
+        if (!cycleSnap || cycleSnap.length === 0) {
           setFacultyData([]);
           setLoading(false);
           return;
         }
         
-        const activeCycleId = cycleSnap.docs[0].id;
+        const activeCycleId = cycleSnap[0].id;
 
-    
-        const appsQ = query(collection(db, 'applications'), where('cycle_id', '==', activeCycleId));
-        const appsSnap = await getDocs(appsQ);
+        // 2. Fetch applications for the active cycle
+        const { data: appsSnap, error: appsError } = await supabase
+          .from('applications')
+          .select('*')
+          .eq('cycle_id', activeCycleId);
+          
+        if (appsError) throw appsError;
         
-        
-        const facultyPromises = appsSnap.docs.map(async (appDoc) => {
-          const appData = appDoc.data();
+        // 3. Process applications and fetch user details
+        const appsData = appsSnap || [];
+        const facultyPromises = appsData.map(async (appData) => {
           let facultyName = "UNKNOWN FACULTY";
           let department = `Dept ${appData.department_id || '?'}`;
           
           const userId = appData.faculty_id || appData.user_id;
 
           if (userId) {
-            const userRef = doc(db, 'users', userId);
-            const userSnap = await getDoc(userRef);
+            // Fetch specific user data
+            const { data: userData, error: userError } = await supabase
+              .from('users')
+              .select('*')
+              .eq('id', userId) // Change to 'user_id' if that is your primary key
+              .single();
             
-            if (userSnap.exists()) {
-              const userData = userSnap.data();
-              
+            if (!userError && userData) {
               facultyName = userData.name 
                 ? userData.name 
                 : `${userData.name_last || ''}, ${userData.name_first || ''}`;
                 
-             
               department = userData.department || (userData.department_id === "1" ? 'CCS' : department);
             }
           }
 
-         
           const rawPts = Number(appData.final_score || appData.total_points || 0);
 
-          
           let displayStatus = appData.status || 'Draft';
           if (['Approved_Unpublished', 'Published'].includes(appData.status)) {
             displayStatus = 'Reviewed';
@@ -88,25 +94,24 @@ const FacultyReviewPage = () => {
           }
 
           return {
-            id: userId || appDoc.id,
-            application_id: appDoc.id,
+            id: String(userId || appData.id),
+            application_id: String(appData.id),
             ranking: 0, 
             name: facultyName.toUpperCase(),
             department: department, 
             points: `${rawPts.toFixed(2)}/200`,
             rawPoints: rawPts,
             status: displayStatus,
-            originalData: { ...appData, id: appDoc.id } 
+            originalData: { ...appData } 
           };
         });
 
-     
         let fetchedFaculty = await Promise.all(facultyPromises);
 
-       
+        // Sort by raw points descending
         fetchedFaculty.sort((a, b) => b.rawPoints - a.rawPoints);
         
-       
+        // Assign rankings based on sorted array
         fetchedFaculty = fetchedFaculty.map((faculty, index) => ({
           ...faculty,
           ranking: index + 1
@@ -123,7 +128,6 @@ const FacultyReviewPage = () => {
     fetchFacultyForActiveCycle();
   }, []);
 
-  
   const stats = [
     { 
       label: 'Under Review', 
@@ -153,7 +157,6 @@ const FacultyReviewPage = () => {
     setIsModalOpen(true);
   };
 
-  
   const filteredFaculty = facultyData.filter(faculty => 
     faculty.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     faculty.department.toLowerCase().includes(searchTerm.toLowerCase())

@@ -10,8 +10,7 @@ import {
   ChevronRight,
   AlertCircle 
 } from 'lucide-react';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebase'; 
+import { supabase } from '../supabaseClient'; 
 
 const DashboardLayout = () => {
   const location = useLocation();
@@ -30,14 +29,16 @@ const DashboardLayout = () => {
 
   const handleConfirmLogout = async () => {
     try {
-      await signOut(auth);
+      // Use Supabase signOut
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      
       navigate('/login');
     } catch (error) {
       console.error("Error signing out: ", error);
     }
   };
 
- 
   const getCurrentDate = () => {
     const options: Intl.DateTimeFormatOptions = { 
       weekday: 'long', 
@@ -56,7 +57,7 @@ const DashboardLayout = () => {
 
   return (
     <div className="flex h-screen bg-[#f3f4f6]">
-     
+      
       <aside className="w-64 bg-sidebar text-white flex flex-col shrink-0">
         <div className="p-8 flex flex-col items-center border-b border-white/10">
           <img src="/assets/gc-logo.png" alt="Logo" className="w-16 h-16 mb-4" />

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowRight, CheckCircle2, Clock, Activity as ActivityIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase'; 
+import { supabase } from '../supabaseClient'; // Ensure this points to your actual Supabase client
 
 interface Cycle {
   id: string;
@@ -33,19 +32,29 @@ const DashboardPage = () => {
       try {
         setLoading(true);
 
-     
-        const cyclesQuery = query(collection(db, 'ranking_cycles'));
-        const cyclesSnapshot = await getDocs(cyclesQuery);
-        
-        const fetchedCycles: Cycle[] = cyclesSnapshot.docs.map(doc => {
-          const data = doc.data();
-          
-          const startDate = data.start_date?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) || 'TBA';
-          const deadlineDate = data.deadline?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) || 'TBA';
-          const publishedDate = data.published_date?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        // 1. Fetch Cycles from Supabase
+        const { data: cyclesData, error: cyclesError } = await supabase
+          .from('ranking_cycles')
+          .select('*');
+
+        if (cyclesError) throw cyclesError;
+
+        const fetchedCycles: Cycle[] = (cyclesData || []).map((data) => {
+          // Supabase returns standard ISO string dates, so we parse them with new Date()
+          const startDate = data.start_date 
+            ? new Date(data.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
+            : 'TBA';
+            
+          const deadlineDate = data.deadline 
+            ? new Date(data.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
+            : 'TBA';
+            
+          const publishedDate = data.published_date 
+            ? new Date(data.published_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
+            : undefined;
 
           return {
-            id: doc.id,
+            id: String(data.cycle_id || data.id), // Adjust primary key if it's named 'cycle_id'
             title: data.title || `${data.semester} AY ${data.year}`,
             status: data.status === 'open' ? 'In Progress' : 'Completed',
             isCurrent: data.status === 'open',
@@ -56,27 +65,29 @@ const DashboardPage = () => {
           };
         });
 
-      
+        // Sort cycles: current ones first
         fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
         setCycles(fetchedCycles);
 
-     
-        const logsQuery = query(
-          collection(db, 'activity_logs'), 
-          orderBy('timestamp', 'desc'), 
-          limit(5)
-        );
-        
-        try {
-          const logsSnapshot = await getDocs(logsQuery);
-          const fetchedLogs: ActivityLog[] = logsSnapshot.docs.map(doc => {
-            const data = doc.data();
-            
-            const logDate = data.timestamp?.toDate();
-            const timeString = logDate ? logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown time';
+        // 2. Fetch Activity Logs from Supabase
+        const { data: logsData, error: logsError } = await supabase
+          .from('activity_logs')
+          .select('*')
+          .order('timestamp', { ascending: false })
+          .limit(5);
+
+        if (logsError) {
+          console.warn("Could not fetch activity logs. Make sure the 'activity_logs' table exists.", logsError);
+          setActivities([]);
+        } else {
+          const fetchedLogs: ActivityLog[] = (logsData || []).map((data) => {
+            const logDate = data.timestamp ? new Date(data.timestamp) : null;
+            const timeString = logDate 
+              ? logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 
+              : 'Unknown time';
 
             return {
-              id: doc.id,
+              id: String(data.id),
               user: data.user || 'System',
               action: data.action || 'Unknown action',
               time: timeString,
@@ -84,10 +95,6 @@ const DashboardPage = () => {
             };
           });
           setActivities(fetchedLogs);
-        } catch (logErr) {
-          console.warn("Could not fetch activity logs. Make sure the 'activity_logs' collection exists.", logErr);
-         
-          setActivities([]); 
         }
 
       } catch (error) {
@@ -173,9 +180,8 @@ const DashboardPage = () => {
                   </div>
                   
                   {cycle.isCurrent ? (
-                 
                     <Link to={`/cycle/${cycle.id}`} className="bg-primary text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center gap-2">
-                      Sumbit Final Results 
+                      Submit Final Results 
                       <ArrowRight size={14} />
                     </Link>
                   ) : (

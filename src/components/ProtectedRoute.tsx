@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { supabase } from '../supabaseClient';
 import { Loader2 } from 'lucide-react';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -12,28 +10,55 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let isMounted = true;
+
+    const checkSession = async (user: any) => {
       if (user) {
-        setIsAuthenticated(true);
+        if (isMounted) setIsAuthenticated(true);
         
         try {
-      
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists() && userDoc.data().is_first_login === true) {
-            setIsFirstLogin(true);
-          } else {
-            setIsFirstLogin(false);
+          // Fetch the user's record from the database
+          const { data, error } = await supabase
+            .from('users')
+            .select('is_first_login')
+            .eq('id', user.id)
+            .single();
+
+          if (error) {
+            console.error("Error fetching user data:", error);
+          }
+
+          if (isMounted) {
+            setIsFirstLogin(data?.is_first_login === true);
           }
         } catch (error) {
           console.error("Error checking user status:", error);
         }
       } else {
-        setIsAuthenticated(false);
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setIsFirstLogin(false);
+        }
       }
-      setLoading(false);
+      
+      if (isMounted) setLoading(false);
+    };
+
+    // 1. Check initial session on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      checkSession(session?.user ?? null);
     });
 
-    return () => unsubscribe();
+    // 2. Listen for auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      checkSession(session?.user ?? null);
+    });
+
+    // Cleanup subscription on unmount
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (loading) {
@@ -44,17 +69,16 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-
-  if (isFirstLogin) {
+  // Check if it's their first login. 
+  // We check location.pathname to prevent an infinite loop if they are already there.
+  if (isFirstLogin && location.pathname !== '/set-password') {
     return <Navigate to="/set-password" replace />;
   }
 
- 
   return <>{children}</>;
 };
 

@@ -1,13 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  EmailAuthProvider, 
-  reauthenticateWithCredential, 
-  updatePassword 
-} from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase'; // Adjust path if needed
+import { supabase } from '../supabaseClient'; // Adjusted for Supabase
 
 const SetPasswordPage = () => {
   const navigate = useNavigate();
@@ -23,19 +17,24 @@ const SetPasswordPage = () => {
   // Fetch current user details on load
   useEffect(() => {
     const fetchUser = async () => {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        navigate('/login'); // Not logged in? Send back to login
-        return;
-      }
-
       try {
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        if (authError || !user) {
+          navigate('/login'); // Not logged in? Send back to login
+          return;
+        }
+
+        const { data, error: dbError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (!dbError && data) {
           setUserData({
-            name: `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'User',
-            email: currentUser.email || ''
+            name: `${data.firstName || data.name_first || ''} ${data.lastName || data.name_last || ''}`.trim() || data.name || 'User',
+            email: user.email || ''
           });
         }
       } catch (err) {
@@ -62,31 +61,43 @@ const SetPasswordPage = () => {
       return;
     }
 
-    const currentUser = auth.currentUser;
-    if (!currentUser || !currentUser.email) return;
-
     try {
       setLoading(true);
 
-     
-      const credential = EmailAuthProvider.credential(currentUser.email, tempPassword);
-      await reauthenticateWithCredential(currentUser, credential);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !user.email) throw new Error('No user found');
 
-     
-      await updatePassword(currentUser, newPassword);
-
-     
-      const userRef = doc(db, 'users', currentUser.uid);
-    await updateDoc(userRef, {
-        is_first_login: false 
+      // 1. Verify temporary password (Reauthenticate)
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: tempPassword,
       });
 
-     
+      if (signInError) {
+        throw new Error('auth/invalid-credential');
+      }
+
+      // 2. Update to new password
+      const { error: updateAuthError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (updateAuthError) throw updateAuthError;
+
+      // 3. Update 'is_first_login' status in the users table
+      const { error: dbError } = await supabase
+        .from('users')
+        .update({ is_first_login: false })
+        .eq('id', user.id);
+
+      if (dbError) throw dbError;
+
+      // Redirect to dashboard on success
       navigate('/dashboard');
 
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/invalid-credential') {
+      if (err.message === 'auth/invalid-credential' || err.message.includes('Invalid login')) {
         setError('Incorrect temporary password.');
       } else {
         setError('Failed to update password. Please try again.');
