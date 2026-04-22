@@ -19,75 +19,110 @@ interface FacultyDetailModalProps {
   onStatusUpdate?: () => void; 
 }
 
+interface Area {
+  id: string;
+  title: string;
+  max: number;
+  current: number;
+  fileUrl: string;
+  color: string;
+}
+
 const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailModalProps) => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [fullUserData, setFullUserData] = useState<any>(null); 
-
-  const [areas, setAreas] = useState([
-    { id: '1', title: 'AREA I: Educational Qualifications', max: 85, current: 0, fileUrl: '', color: 'bg-[#0a5e2f]' },
-    { id: '2', title: 'AREA II: Research and Publications', max: 20, current: 0, fileUrl: '', color: 'bg-[#0a5e2f]' },
-    { id: '3', title: 'AREA III: Teaching Experience and Professional Services', max: 20, current: 0, fileUrl: '', color: 'bg-[#0a5e2f]' },
-    { id: '4', title: 'AREA IV: Performance Evaluation', max: 10, current: 0, fileUrl: '', color: 'bg-[#0a5e2f]' },
-    { id: '5', title: 'AREA V: Training and Seminars', max: 20, current: 0, fileUrl: '', color: 'bg-[#0a5e2f]' },
-  ]);
+  const [appData, setAppData] = useState<any>(null);
+  const [areas, setAreas] = useState<Area[]>([]);
 
   useEffect(() => {
     const fetchAllData = async () => {
-      if (!faculty?.id) return;
+      // Get the Application ID from the prop (handles different possible prop structures)
+      const appId = faculty?.application_id || faculty?.id;
+      if (!appId) {
+        console.warn("No application ID found in faculty prop");
+        return;
+      }
       
       try {
         setLoading(true);
         
-        const userId = faculty.user_id || faculty.userId || faculty.id; 
-        
-        // 1. Fetch User Data
-        if (userId) {
+        // 1. Fetch Application Data (Crucial: gets us the faculty_id)
+        const { data: applicationData, error: appError } = await supabase
+          .from('applications')
+          .select('*')
+          .eq('application_id', appId)
+          .single();
+
+        if (appError) throw appError;
+        setAppData(applicationData);
+
+        // 2. Fetch User Data & Join Department
+        if (applicationData?.faculty_id) {
           const { data: userData, error: userError } = await supabase
             .from('users')
-            .select('*')
-            .eq('id', userId)
+            .select(`
+              *,
+              departments(department_name)
+            `)
+            .eq('user_id', applicationData.faculty_id)
             .single();
 
-          if (!userError && userData) {
+          if (userError) {
+            console.error("Error fetching user data:", userError);
+          } else if (userData) {
             setFullUserData(userData);
-          } else {
-            console.log("No user document found for ID:", userId);
           }
         }
 
-        // 2. Fetch Area Submissions 
-        // Assuming your 'area_submissions' table has an 'application_id' foreign key
+        // 3. Fetch Master Areas List
+        const { data: areasData, error: areasError } = await supabase
+          .from('areas')
+          .select('*')
+          .order('area_id');
+          
+        if (areasError) throw areasError;
+
+        // 4. Fetch Area Submissions for this application
         const { data: submissionsData, error: subError } = await supabase
           .from('area_submissions')
           .select('*')
-          .eq('application_id', faculty.id);
+          .eq('application_id', appId);
         
         if (subError) throw subError;
 
-        const fetchedData: Record<string, any> = {};
+        // Create a lookup dictionary for submissions by area_id
+        const fetchedSubmissions: Record<string, any> = {};
         if (submissionsData) {
           submissionsData.forEach(docData => {
-            // Using area_id or parsing id just like the previous Firestore logic
-             const areaId = String(docData.area_id || (docData.id && String(docData.id).replace('area_', '')));
-             fetchedData[areaId] = docData;
+             const areaId = String(docData.area_id);
+             fetchedSubmissions[areaId] = docData;
           });
         }
 
-        setAreas(prevAreas => prevAreas.map(area => {
-          const submission = fetchedData[area.id];
-          if (submission) {
-            const currentPoints = submission.vpaa_mark ?? submission.hr_mark ?? 0;
+        // 5. Merge Master Areas with Submissions
+        if (areasData) {
+          const mergedAreas = areasData.map(area => {
+            const submission = fetchedSubmissions[String(area.area_id)];
+            
+            // Priority: VPAA points, fallback to HR points, fallback to 0
+            const currentPoints = submission ? (submission.vpaa_points ?? submission.hr_points ?? 0) : 0;
+            
             return {
-              ...area,
+              id: String(area.area_id),
+              title: area.area_name || `Area ${area.area_id}`,
+              max: Number(area.max_possible_points) || 0,
               current: Number(currentPoints),
-              fileUrl: submission.file_path || submission.document_url || '' 
+              fileUrl: submission?.file_path || '', 
+              color: 'bg-[#0a5e2f]' 
             };
-          }
-          return area;
-        }));
+          });
+          
+          setAreas(mergedAreas);
+        }
+
       } catch (err) {
-        console.error("Error fetching data:", err);
+        console.error("Error in fetchAllData pipeline:", err);
       } finally {
         setLoading(false);
       }
@@ -97,14 +132,16 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
   }, [faculty]);
 
   const handleCompleteReview = async () => {
-    if (!faculty?.id) return;
+    const appId = faculty?.application_id || faculty?.id;
+    if (!appId) return;
+
     try {
       setUpdating(true);
       
       const { error } = await supabase
         .from('applications')
         .update({ status: 'Reviewed' })
-        .eq('id', faculty.id);
+        .eq('application_id', appId);
       
       if (error) throw error;
       
@@ -119,8 +156,20 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
 
   if (!faculty) return null;
 
-  const data = fullUserData || faculty?.originalData || faculty || {};
+  // Safe variables for rendering
   const totalPoints = areas.reduce((sum, area) => sum + area.current, 0);
+
+  // Construct Name
+  const firstName = fullUserData?.name_first || '';
+  const middleInitial = fullUserData?.name_middle ? `${fullUserData.name_middle.charAt(0)}.` : '';
+  const lastName = fullUserData?.name_last || '';
+  const fullName = `${firstName} ${middleInitial} ${lastName}`.trim() || 'N/A';
+
+  // Extract Department Name
+  const deptData = fullUserData?.departments;
+  const departmentName = deptData 
+    ? (Array.isArray(deptData) ? deptData[0]?.department_name : deptData.department_name) 
+    : 'Not specified';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -157,11 +206,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 <div className="grid grid-cols-1 gap-y-4">
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Name</p>
-                    <p className="text-sm font-semibold text-slate-800">{data.name || faculty.name || 'N/A'}</p>
+                    <p className="text-sm font-semibold text-slate-800">{loading ? 'Loading...' : fullName}</p>
                   </div>
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Department</p>
-                    <p className="text-sm font-semibold text-slate-800">{data.department || faculty.department || 'N/A'}</p>
+                    <p className="text-sm font-semibold text-slate-800">{loading ? 'Loading...' : departmentName}</p>
                   </div>
                 </div>
               </section>
@@ -174,11 +223,15 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 <div className="grid grid-cols-2 gap-y-4 gap-x-4">
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Present Rank</p>
-                    <p className="text-sm font-semibold text-slate-800">{data.presentRank || data.current_rank || 'N/A'}</p>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {fullUserData?.current_rank || appData?.current_rank_at_time || 'N/A'}
+                    </p>
                   </div>
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Nature of Appointment</p>
-                    <p className="text-sm font-semibold text-slate-800">{data.natureOfAppointment || 'Permanent'}</p>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {fullUserData?.nature_of_appointment || 'Permanent'}
+                    </p>
                   </div>                
                 </div>
               </section>
@@ -188,18 +241,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                   <GraduationCap size={16} className="text-slate-400" /> Educational Attainment
                 </h4>
                 <div className="space-y-3">
-                  {Array.isArray(data.educationalAttainment) ? (
-                    data.educationalAttainment.map((edu: any, index: number) => (
-                      <div key={index} className="p-3 bg-slate-50 rounded-xl">
-                        <p className="text-sm font-semibold text-slate-800">{edu.degree || edu}</p>
-                        {edu.school && <p className="text-xs text-slate-500 mt-1">{edu.school}</p>}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <p className="text-sm font-semibold text-slate-800">{data.educational_attainment || data.educationalAttainment || 'No data provided'}</p>
-                    </div>
-                  )}
+                  <div className="p-3 bg-slate-50 rounded-xl">
+                    <p className="text-sm font-semibold text-slate-800">
+                      {fullUserData?.educational_attainment || 'No data provided'}
+                    </p>
+                  </div>
                 </div>
               </section>
 
@@ -211,19 +257,23 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 <div className="grid grid-cols-2 gap-y-4 gap-x-4">
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Teaching Exp.</p>
-                    <p className="text-sm font-semibold text-slate-800">{data.teachingExperienceYears || 0} years</p>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {fullUserData?.teaching_experience_years || 0} years
+                    </p>
                   </div>
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Industry Exp.</p>
-                    <p className="text-sm font-semibold text-slate-800">{data.industryExperienceYears || 0} years</p>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {fullUserData?.industry_experience_years || 0} years
+                    </p>
                   </div>
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Performance Rating</p>
-                    <p className="text-sm font-semibold text-slate-800">{data.performanceRating || 'N/A'}</p>
+                    <p className="text-sm font-semibold text-slate-800">N/A</p>
                   </div>
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Rating Description</p>
-                    <p className="text-sm font-semibold text-slate-800">{data.ratingDescription || 'N/A'}</p>
+                    <p className="text-sm font-semibold text-slate-800">N/A</p>
                   </div>
                 </div>
               </section>
@@ -244,7 +294,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
             <div className="mb-10">
               <h3 className="text-base font-bold text-slate-800 uppercase tracking-wide mb-6">Submitted Areas</h3>
               <div className="space-y-6">
-                {areas.map((area, idx) => (
+                {areas.length > 0 ? areas.map((area, idx) => (
                   <div key={idx} className="group">
                     <div className="flex justify-between items-end mb-2">
                       <div className="flex-1 pr-6">
@@ -255,10 +305,10 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                         <span className="text-sm font-bold text-[#0a5e2f]">{area.current.toFixed(2)}</span>
                         {area.fileUrl ? (
                           <a href={area.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-[#0a5e2f] hover:underline mt-1">
-                            view PDF
+                            view file
                           </a>
                         ) : (
-                          <span className="text-[11px] font-medium text-slate-300 mt-1">No PDF</span>
+                          <span className="text-[11px] font-medium text-slate-300 mt-1">No file</span>
                         )}
                       </div>
                     </div>
@@ -270,7 +320,9 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                       />
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <p className="text-sm text-slate-500 italic">No areas available.</p>
+                )}
               </div>
             </div>
 

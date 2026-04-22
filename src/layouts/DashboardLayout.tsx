@@ -55,11 +55,11 @@ const DashboardLayout = () => {
         const { data: authData, error: authError } = await supabase.auth.getUser();
         if (authError || !authData?.user) return;
 
-        // 2. Fetch their details from your public.users table
+        // 2. Fetch their details from your public.users table using their email
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select('name_first, name_last')
-          .eq('user_id', authData.user.id) // Ensure 'user_id' is the correct column name connecting to auth
+          .eq('domain_email', authData.user.email) // <--- FIXED HERE
           .single();
 
         if (userError) throw userError;
