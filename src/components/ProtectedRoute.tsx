@@ -19,10 +19,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         try {
           // Fetch the user's record from the database
           const { data, error } = await supabase
-            .from('users')
-            .select('is_first_login')
-            .eq('id', user.id)
-            .single();
+  .from('users')
+  .select('is_first_login')
+  .eq('domain_email', user.email) // <-- Change this line to use email
+  .single();
 
           if (error) {
             console.error("Error fetching user data:", error);

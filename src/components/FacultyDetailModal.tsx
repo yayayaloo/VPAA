@@ -179,13 +179,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Nature of Appointment</p>
                     <p className="text-sm font-semibold text-slate-800">{data.natureOfAppointment || 'Permanent'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-slate-400 font-semibold mb-1">Current Salary</p>
-                    <p className="text-sm font-semibold text-slate-800">
-                      {data.currentSalary ? `₱${data.currentSalary.toLocaleString()}` : 'N/A'}
-                    </p>
-                  </div>
+                  </div>                
                 </div>
               </section>
 

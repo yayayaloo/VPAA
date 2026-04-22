@@ -3,9 +3,23 @@ import { CheckCircle2, Search, Filter, ArrowRight, Calendar, Download, Loader2, 
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient'; 
 
+export interface CycleHistory {
+  cycle_id: string;
+  title: string;
+  semester: string;
+  year: string;
+  status: string;
+  started: string;
+  published: string;
+  totalFaculty: number;
+  avgPoints: string;
+  rawStartDate: string;
+}
+
 const HistoryPage = () => {
-  const [cycles, setCycles] = useState<any[]>([]);
+  const [cycles, setCycles] = useState<CycleHistory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [stats, setStats] = useState({
     totalCycles: 0,
@@ -18,13 +32,12 @@ const HistoryPage = () => {
       try {
         setLoading(true);
 
-        // Fetch data from Supabase
         const [
           { data: cyclesData, error: cyclesError },
           { data: appsData, error: appsError }
         ] = await Promise.all([
           supabase.from('ranking_cycles').select('*'),
-          supabase.from('applications').select('*')
+          supabase.from('applications').select('cycle_id, final_score')
         ]);
 
         if (cyclesError) throw cyclesError;
@@ -33,18 +46,15 @@ const HistoryPage = () => {
         const safeCyclesData = cyclesData || [];
         const safeAppsData = appsData || [];
         
-        const fetchedCycles: any[] = [];
+        const fetchedCycles: CycleHistory[] = [];
         let highestAverage = 0;
 
         safeCyclesData.forEach(data => {
-          // Find all applications belonging to this cycle
-          // Using String() ensures matching works even if one is an int and the other a string
-          const cycleApps = safeAppsData.filter(app => String(app.cycle_id) === String(data.id));
+          const cycleApps = safeAppsData.filter(app => String(app.cycle_id) === String(data.cycle_id));
           const totalFaculty = cycleApps.length;
           
-          // Calculate total points
           const totalPoints = cycleApps.reduce((sum, app) => {
-            const score = Number(app.final_score) || Number(app.total_points) || 0;
+            const score = Number(app.final_score) || 0;
             return sum + score;
           }, 0);
           
@@ -55,20 +65,19 @@ const HistoryPage = () => {
           }
 
           fetchedCycles.push({
-            id: String(data.id),
+            cycle_id: String(data.cycle_id),
             title: data.title || `${data.semester || 'Semester'} ${data.year || 'Year'}`,
             semester: data.semester || 'N/A',
-            year: data.year || 'N/A',
+            year: String(data.year || 'N/A'),
             status: data.status === 'open' ? 'Active' : 'Closed', 
             started: formatDate(data.start_date),
-            published: formatDate(data.deadline || data.end_date), 
+            published: formatDate(data.deadline),
             totalFaculty,
             avgPoints,
-            rawStartDate: data.start_date // Keeping raw date for accurate sorting
+            rawStartDate: data.start_date || new Date().toISOString()
           });
         });
 
-        // Sort by start date, newest first
         fetchedCycles.sort((a, b) => new Date(b.rawStartDate).getTime() - new Date(a.rawStartDate).getTime());
 
         setCycles(fetchedCycles);
@@ -88,16 +97,111 @@ const HistoryPage = () => {
     fetchHistoryData();
   }, []);
 
-  // Simplified date formatter for Supabase's standard ISO strings
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const handleExport = async (cycleId: string, cycleTitle: string) => {
+    try {
+      setExportingId(cycleId);
+
+      // 1. Fetch all applications for the selected cycle
+      const { data: apps, error: appsError } = await supabase
+        .from('applications')
+        .select('*')
+        .eq('cycle_id', cycleId);
+
+      if (appsError) throw appsError;
+
+      if (!apps || apps.length === 0) {
+        alert("No applications found for this cycle to export.");
+        setExportingId(null);
+        return;
+      }
+
+      // 2. Fetch relational data (Users, Departments, Positions) for mapping
+      const userIds = [...new Set(apps.map(a => a.faculty_id).filter(Boolean))];
+      
+      const [
+        { data: users },
+        { data: depts },
+        { data: positions }
+      ] = await Promise.all([
+        supabase.from('users').select('*').in('user_id', userIds),
+        supabase.from('departments').select('*'),
+        supabase.from('positions').select('*')
+      ]);
+
+      // Create lookup maps
+      const userMap = new Map(users?.map(u => [u.user_id, u]));
+      const deptMap = new Map(depts?.map(d => [String(d.department_id), d.department_name]));
+      const posMap = new Map(positions?.map(p => [String(p.position_id), p.position_name]));
+
+      // 3. Format the data for the CSV
+      const formattedData = apps.map(app => {
+        const user = userMap.get(app.faculty_id);
+        const facultyName = user ? `${user.name_last || ''}, ${user.name_first || ''}`.replace(/^, | ,$/g, '') : 'Unknown';
+        const deptName = user?.department_id ? deptMap.get(String(user.department_id)) || 'N/A' : 'N/A';
+        const targetPos = app.target_position_id ? posMap.get(String(app.target_position_id)) || 'N/A' : 'N/A';
+        const currentPos = app.current_rank_at_time || user?.current_rank || 'N/A';
+        const score = Number(app.final_score) || 0;
+
+        return {
+          facultyName,
+          department: deptName,
+          currentPosition: currentPos,
+          appliedPosition: targetPos,
+          totalPoints: score,
+          status: app.status || 'N/A'
+        };
+      });
+
+      // 4. Sort by points descending (Rank 1 to N)
+      formattedData.sort((a, b) => b.totalPoints - a.totalPoints);
+
+      // 5. Generate CSV Content
+      const headers = ['Ranking', 'Faculty Name', 'Department', 'Current Position', 'Applied Position', 'Total Points', 'Status'];
+      const csvRows = [headers.join(',')];
+
+      formattedData.forEach((row, index) => {
+        const csvRow = [
+          index + 1,
+          `"${row.facultyName}"`, // Enclosed in quotes to handle names with commas
+          `"${row.department}"`,
+          `"${row.currentPosition}"`,
+          `"${row.appliedPosition}"`,
+          row.totalPoints.toFixed(2),
+          row.status
+        ];
+        csvRows.push(csvRow.join(','));
+      });
+
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      
+      // 6. Trigger Download
+      const link = document.createElement('a');
+      const safeTitle = cycleTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `Rankings_${safeTitle}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } catch (error) {
+      console.error("Export Error:", error);
+      alert("An error occurred while exporting the data. Please try again.");
+    } finally {
+      setExportingId(null);
+    }
+  };
+
   const filteredCycles = cycles.filter(cycle => 
     cycle.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     cycle.semester.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cycle.year.toString().includes(searchTerm)
+    cycle.year.includes(searchTerm)
   );
 
   if (loading) {
@@ -164,7 +268,7 @@ const HistoryPage = () => {
         ) : (
           filteredCycles.map((cycle) => (
             <div 
-              key={cycle.id}
+              key={cycle.cycle_id}
               className="group bg-white p-6 rounded-2xl border border-slate-200 hover:border-primary/40 hover:shadow-md transition-all duration-300"
             >
               <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6">
@@ -176,7 +280,6 @@ const HistoryPage = () => {
                   </div>
                   <div>
                     <h4 className="text-lg font-black text-slate-800 mb-0.5">{cycle.title}</h4>
-                    {/* Explicitly showing what cycle this is */}
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                       {cycle.semester} • AY {cycle.year}
                     </p>
@@ -214,11 +317,19 @@ const HistoryPage = () => {
 
                 {/* Right Side: Actions */}
                 <div className="flex items-center gap-3 mt-4 lg:mt-0">
-                  <button className="flex-1 lg:flex-none px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors flex items-center justify-center gap-2">
-                    <Download size={14} />
-                    Export
+                  <button 
+                    onClick={() => handleExport(cycle.cycle_id, cycle.title)}
+                    disabled={exportingId === cycle.cycle_id}
+                    className="flex-1 lg:flex-none px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {exportingId === cycle.cycle_id ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Download size={14} />
+                    )}
+                    {exportingId === cycle.cycle_id ? 'Exporting...' : 'Export'}
                   </button>
-                  <Link to={`/history/${cycle.id}`} className="flex-1 lg:flex-none px-5 py-2.5 bg-sidebar text-white rounded-xl text-xs font-bold hover:bg-sidebar-dark shadow-sm transition-all group/btn flex items-center justify-center gap-2">
+                  <Link to={`/history/${cycle.cycle_id}`} className="flex-1 lg:flex-none px-5 py-2.5 bg-sidebar text-white rounded-xl text-xs font-bold hover:bg-sidebar-dark shadow-sm transition-all group/btn flex items-center justify-center gap-2">
                     View Rankings
                     <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
                   </Link>

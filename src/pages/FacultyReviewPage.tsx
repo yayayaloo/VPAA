@@ -16,6 +16,8 @@ export interface Faculty {
   ranking: number;
   name: string;
   department: string;
+  currentPosition: string; 
+  appliedPosition: string; 
   points: string;
   rawPoints: number;
   status: string;
@@ -27,17 +29,20 @@ const FacultyReviewPage = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFaculty, setSelectedFaculty] = useState<Faculty | null>(null);
+  
+  // Search and Filter states
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState("All");
 
   useEffect(() => {
     const fetchFacultyForActiveCycle = async () => {
       try {
         setLoading(true);
         
-        // 1. Fetch the active cycle
+        // 1. Fetch the active cycle using exact PK: cycle_id
         const { data: cycleSnap, error: cycleError } = await supabase
           .from('ranking_cycles')
-          .select('id') // Change to 'cycle_id' if that is your primary key
+          .select('cycle_id') 
           .eq('status', 'open')
           .limit(1);
           
@@ -49,7 +54,7 @@ const FacultyReviewPage = () => {
           return;
         }
         
-        const activeCycleId = cycleSnap[0].id;
+        const activeCycleId = cycleSnap[0].cycle_id;
 
         // 2. Fetch applications for the active cycle
         const { data: appsSnap, error: appsError } = await supabase
@@ -59,32 +64,58 @@ const FacultyReviewPage = () => {
           
         if (appsError) throw appsError;
         
-        // 3. Process applications and fetch user details
+        // 3. Process applications and fetch relational details
         const appsData = appsSnap || [];
         const facultyPromises = appsData.map(async (appData) => {
           let facultyName = "UNKNOWN FACULTY";
-          let department = `Dept ${appData.department_id || '?'}`;
+          let department = "Not specified";
+          let currentPos = appData.current_rank_at_time || "Not specified";
+          let appliedPos = "Not specified";
           
-          const userId = appData.faculty_id || appData.user_id;
+          const userId = appData.faculty_id;
+
+          // Fetch Applied Position Name from 'positions' table
+          if (appData.target_position_id) {
+            const { data: posData } = await supabase
+              .from('positions')
+              .select('position_name')
+              .eq('position_id', appData.target_position_id)
+              .single();
+            
+            if (posData) appliedPos = posData.position_name;
+          }
 
           if (userId) {
             // Fetch specific user data
             const { data: userData, error: userError } = await supabase
               .from('users')
               .select('*')
-              .eq('id', userId) // Change to 'user_id' if that is your primary key
+              .eq('user_id', userId) 
               .single();
             
             if (!userError && userData) {
-              facultyName = userData.name 
-                ? userData.name 
-                : `${userData.name_last || ''}, ${userData.name_first || ''}`;
+              // Format Name
+              facultyName = `${userData.name_last || ''}, ${userData.name_first || ''}`.replace(/^, | ,$/g, '');
+              
+              // Fallback for current rank if it wasn't captured in the application snapshot
+              if (currentPos === "Not specified" && userData.current_rank) {
+                currentPos = userData.current_rank;
+              }
+
+              // Fetch Department Name from 'departments' table
+              if (userData.department_id) {
+                const { data: deptData } = await supabase
+                  .from('departments')
+                  .select('department_name')
+                  .eq('department_id', userData.department_id)
+                  .single();
                 
-              department = userData.department || (userData.department_id === "1" ? 'CCS' : department);
+                if (deptData) department = deptData.department_name;
+              }
             }
           }
 
-          const rawPts = Number(appData.final_score || appData.total_points || 0);
+          const rawPts = Number(appData.final_score || 0);
 
           let displayStatus = appData.status || 'Draft';
           if (['Approved_Unpublished', 'Published'].includes(appData.status)) {
@@ -94,11 +125,13 @@ const FacultyReviewPage = () => {
           }
 
           return {
-            id: String(userId || appData.id),
-            application_id: String(appData.id),
+            id: String(userId || appData.application_id),
+            application_id: String(appData.application_id),
             ranking: 0, 
             name: facultyName.toUpperCase(),
             department: department, 
+            currentPosition: currentPos,
+            appliedPosition: appliedPos,
             points: `${rawPts.toFixed(2)}/200`,
             rawPoints: rawPts,
             status: displayStatus,
@@ -157,10 +190,17 @@ const FacultyReviewPage = () => {
     setIsModalOpen(true);
   };
 
-  const filteredFaculty = facultyData.filter(faculty => 
-    faculty.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    faculty.department.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Generate unique departments for the filter dropdown
+  const uniqueDepartments = ["All", ...Array.from(new Set(facultyData.map(f => f.department)))];
+
+  // Apply Search AND Filter
+  const filteredFaculty = facultyData.filter(faculty => {
+    const matchesSearch = faculty.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          faculty.department.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesDept = selectedDepartment === "All" || faculty.department === selectedDepartment;
+    
+    return matchesSearch && matchesDept;
+  });
 
   if (loading) {
     return (
@@ -207,19 +247,31 @@ const FacultyReviewPage = () => {
               />
             </div>
 
-            <button className="flex items-center gap-3 px-6 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-all">
-              All Departments
-              <Filter size={18} className="text-slate-400" />
-            </button>
+            {/* Department Filter Dropdown */}
+            <div className="relative">
+              <select
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                className="appearance-none flex items-center gap-3 pl-6 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+              >
+                {uniqueDepartments.map((dept) => (
+                  <option key={dept} value={dept}>
+                    {dept === "All" ? "All Departments" : dept}
+                  </option>
+                ))}
+              </select>
+              <Filter size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left whitespace-nowrap">
             <thead>
               <tr className="border-y border-slate-100 bg-slate-50/50">
                 <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Ranking</th>
                 <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Faculty</th>
+                <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Positions (Current → Applied)</th>
                 <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Department</th>
                 <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Points</th>
                 <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
@@ -229,8 +281,8 @@ const FacultyReviewPage = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredFaculty.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-8 py-12 text-center text-sm font-medium text-slate-500">
-                    No faculty applications found for the active cycle yet.
+                  <td colSpan={7} className="px-8 py-12 text-center text-sm font-medium text-slate-500">
+                    No faculty applications found matching your criteria.
                   </td>
                 </tr>
               ) : (
@@ -238,6 +290,19 @@ const FacultyReviewPage = () => {
                   <tr key={faculty.id} className="hover:bg-slate-50/80 transition-colors group">
                     <td className="px-8 py-5 text-sm font-bold text-slate-400">#{faculty.ranking}</td>
                     <td className="px-8 py-5 text-[11px] font-black text-slate-700 tracking-tight">{faculty.name}</td>
+                    
+                    {/* Position Information Column */}
+                    <td className="px-8 py-5">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] font-medium text-slate-400">
+                          <span className="font-semibold text-slate-500">Current:</span> {faculty.currentPosition}
+                        </span>
+                        <span className="text-[11px] font-medium text-emerald-600">
+                          <span className="font-semibold text-emerald-700">Applying:</span> {faculty.appliedPosition}
+                        </span>
+                      </div>
+                    </td>
+
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.department}</td>
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.points}</td>
                     <td className="px-8 py-5">
@@ -256,6 +321,7 @@ const FacultyReviewPage = () => {
                         <button 
                           onClick={() => openModal(faculty)}
                           className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                          title="View Details"
                         >
                           <Eye size={20} />
                         </button>

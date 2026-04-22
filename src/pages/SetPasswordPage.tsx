@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient'; // Adjusted for Supabase
+import { supabase } from '../supabaseClient'; 
 
 const SetPasswordPage = () => {
   const navigate = useNavigate();
@@ -21,19 +21,19 @@ const SetPasswordPage = () => {
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         
         if (authError || !user) {
-          navigate('/login'); // Not logged in? Send back to login
+          navigate('/login'); 
           return;
         }
 
         const { data, error: dbError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+  .from('users')
+  .select('*')
+  .eq('domain_email', user.email) // <-- Works perfectly!
+  .single();
 
         if (!dbError && data) {
           setUserData({
-            name: `${data.firstName || data.name_first || ''} ${data.lastName || data.name_last || ''}`.trim() || data.name || 'User',
+            name: `${data.name_first || ''} ${data.name_last || ''}`.trim() || 'User', // Updated to match your schema's exact column names
             email: user.email || ''
           });
         }
@@ -85,10 +85,10 @@ const SetPasswordPage = () => {
       if (updateAuthError) throw updateAuthError;
 
       // 3. Update 'is_first_login' status in the users table
-      const { error: dbError } = await supabase
-        .from('users')
-        .update({ is_first_login: false })
-        .eq('id', user.id);
+     const { error: dbError } = await supabase
+  .from('users')
+  .update({ is_first_login: false })
+  .eq('domain_email', user.email);
 
       if (dbError) throw dbError;
 

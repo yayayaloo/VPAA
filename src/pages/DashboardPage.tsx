@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, CheckCircle2, Clock, Activity as ActivityIcon } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock, Activity as ActivityIcon, BellRing, AlertTriangle, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../supabaseClient'; // Ensure this points to your actual Supabase client
+import { supabase } from '../supabaseClient'; 
 
 interface Cycle {
   id: string;
@@ -19,7 +19,7 @@ interface ActivityLog {
   user: string;
   action: string;
   time: string;
-  type: string;
+  isRead: boolean;
 }
 
 const DashboardPage = () => {
@@ -27,92 +27,145 @@ const DashboardPage = () => {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // New states for the submission process
+  const [cycleToSubmit, setCycleToSubmit] = useState<Cycle | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true);
-
-        // 1. Fetch Cycles from Supabase
-        const { data: cyclesData, error: cyclesError } = await supabase
-          .from('ranking_cycles')
-          .select('*');
-
-        if (cyclesError) throw cyclesError;
-
-        const fetchedCycles: Cycle[] = (cyclesData || []).map((data) => {
-          // Supabase returns standard ISO string dates, so we parse them with new Date()
-          const startDate = data.start_date 
-            ? new Date(data.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
-            : 'TBA';
-            
-          const deadlineDate = data.deadline 
-            ? new Date(data.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
-            : 'TBA';
-            
-          const publishedDate = data.published_date 
-            ? new Date(data.published_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
-            : undefined;
-
-          return {
-            id: String(data.cycle_id || data.id), // Adjust primary key if it's named 'cycle_id'
-            title: data.title || `${data.semester} AY ${data.year}`,
-            status: data.status === 'open' ? 'In Progress' : 'Completed',
-            isCurrent: data.status === 'open',
-            started: startDate,
-            deadline: deadlineDate,
-            published: publishedDate,
-            badge: data.status !== 'open' ? 'CLOSED' : null
-          };
-        });
-
-        // Sort cycles: current ones first
-        fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
-        setCycles(fetchedCycles);
-
-        // 2. Fetch Activity Logs from Supabase
-        const { data: logsData, error: logsError } = await supabase
-          .from('activity_logs')
-          .select('*')
-          .order('timestamp', { ascending: false })
-          .limit(5);
-
-        if (logsError) {
-          console.warn("Could not fetch activity logs. Make sure the 'activity_logs' table exists.", logsError);
-          setActivities([]);
-        } else {
-          const fetchedLogs: ActivityLog[] = (logsData || []).map((data) => {
-            const logDate = data.timestamp ? new Date(data.timestamp) : null;
-            const timeString = logDate 
-              ? logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 
-              : 'Unknown time';
-
-            return {
-              id: String(data.id),
-              user: data.user || 'System',
-              action: data.action || 'Unknown action',
-              time: timeString,
-              type: data.type || 'info'
-            };
-          });
-          setActivities(fetchedLogs);
-        }
-
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchDashboardData();
   }, []);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+
+      // 1. Fetch Cycles from Supabase
+      const { data: cyclesData, error: cyclesError } = await supabase
+        .from('ranking_cycles')
+        .select('*');
+
+      if (cyclesError) throw cyclesError;
+
+      const fetchedCycles: Cycle[] = (cyclesData || []).map((data) => {
+        const startDate = data.start_date 
+          ? new Date(data.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
+          : 'TBA';
+          
+        const deadlineDate = data.deadline 
+          ? new Date(data.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
+          : 'TBA';
+          
+        const publishedDate = data.published_date 
+          ? new Date(data.published_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
+          : undefined;
+
+        return {
+          id: String(data.cycle_id || data.id), 
+          title: data.title || `${data.semester} AY ${data.year}`,
+          status: data.status === 'open' ? 'In Progress' : 'Completed',
+          isCurrent: data.status === 'open',
+          started: startDate,
+          deadline: deadlineDate,
+          published: publishedDate,
+          badge: data.status !== 'open' ? 'CLOSED' : null
+        };
+      });
+
+      // Sort cycles: current ones first
+      fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
+      setCycles(fetchedCycles);
+
+      // 2. Fetch Notifications
+      const { data: notifData, error: notifError } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (notifError) {
+        console.warn("Could not fetch notifications.", notifError);
+        setActivities([]);
+      } else {
+        const fetchedLogs: ActivityLog[] = (notifData || []).map((data) => {
+          const logDate = data.created_at ? new Date(data.created_at) : null;
+          const timeString = logDate 
+            ? logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 
+            : 'Unknown time';
+
+          return {
+            id: String(data.id),
+            user: 'System Notification', 
+            action: data.message || 'New system update',
+            time: timeString,
+            isRead: data.is_read || false
+          };
+        });
+        setActivities(fetchedLogs);
+      }
+
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- NEW: Function to handle cycle submission ---
+  const handleConfirmSubmit = async () => {
+    if (!cycleToSubmit) return;
+    setIsSubmitting(true);
+
+    try {
+      const today = new Date().toISOString();
+
+      // Update the status and published_date in Supabase
+      const { error } = await supabase
+        .from('ranking_cycles')
+        .update({ 
+          status: 'closed', // Or whatever your closed status string is ('completed', 'published', etc.)
+          published_date: today 
+        })
+        .eq('cycle_id', cycleToSubmit.id); // Assuming the PK is 'cycle_id' based on your previous files
+
+      if (error) throw error;
+
+      // Update the local state instantly so the UI reflects the change
+      setCycles(prevCycles => {
+        const updated = prevCycles.map(c => 
+          c.id === cycleToSubmit.id 
+            ? { 
+                ...c, 
+                status: 'Completed', 
+                isCurrent: false, 
+                badge: 'CLOSED',
+                published: new Date(today).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              } 
+            : c
+        );
+        // Re-sort so closed ones drop to the bottom
+        return updated.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
+      });
+
+      // Optional: Add a system notification that the cycle was published
+      await supabase.from('notifications').insert([
+        { message: `${cycleToSubmit.title} has been finalized and published.`, is_read: false }
+      ]);
+
+      setCycleToSubmit(null);
+    } catch (error) {
+      console.error("Error submitting final results:", error);
+      alert("There was an error finalizing the cycle. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   if (loading) {
     return <div className="p-8 text-center text-slate-500 font-bold animate-pulse">Loading dashboard data...</div>;
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-10 relative">
       {/* Ranking Cycle History Section */}
       <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
         <div className=" flex justify-between items-center mb-6">
@@ -180,10 +233,18 @@ const DashboardPage = () => {
                   </div>
                   
                   {cycle.isCurrent ? (
-                    <Link to={`/cycle/${cycle.id}`} className="bg-primary text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center gap-2">
-                      Submit Final Results 
-                      <ArrowRight size={14} />
-                    </Link>
+                    <div className="flex gap-2">
+                      <Link to={`/cycle/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 mr-2">
+                        Review Details
+                      </Link>
+                      <button 
+                        onClick={() => setCycleToSubmit(cycle)}
+                        className="bg-primary text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center gap-2 cursor-pointer"
+                      >
+                        Submit Final Results 
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
                   ) : (
                     <Link to={`/HistoryPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group">
                       See more
@@ -203,37 +264,76 @@ const DashboardPage = () => {
         </div>
       </section>
 
-      {/* Recent Activity Section */}
+      {/* System Notifications Section */}
       <section>
         <div className="mb-6">
-          <h3 className="text-lg font-bold text-sidebar">Recent Activities</h3>
-          <p className="text-xs text-slate-500">Latest Updates from faculty and the system</p>
+          <h3 className="text-lg font-bold text-sidebar">System Notifications</h3>
+          <p className="text-xs text-slate-500">Latest alerts and updates from the portal</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="divide-y divide-slate-100">
             {activities.length > 0 ? activities.map((activity) => (
-              <div key={activity.id} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
+              <div key={activity.id} className={`p-4 hover:bg-slate-50 transition-colors flex justify-between items-center ${!activity.isRead ? 'bg-primary/5' : ''}`}>
                 <div>
                   <h5 className="text-sm font-bold text-slate-800">{activity.user}</h5>
-                  <p className="text-[13px] text-slate-600 font-medium">{activity.action}</p>
+                  <p className={`text-[13px] font-medium mt-1 ${!activity.isRead ? 'text-primary' : 'text-slate-600'}`}>
+                    {activity.action}
+                  </p>
                   <p className="text-[11px] text-slate-400 mt-1">{activity.time}</p>
                 </div>
-                {activity.type === 'success' && (
-                  <div className="bg-primary/5 text-primary p-2 rounded-lg">
-                    <CheckCircle2 size={18} />
+                {!activity.isRead && (
+                  <div className="bg-primary/10 text-primary p-2 rounded-full">
+                    <BellRing size={16} />
                   </div>
                 )}
               </div>
             )) : (
               <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
                 <ActivityIcon size={24} className="opacity-20" />
-                No recent activities recorded.
+                No recent notifications recorded.
               </div>
             )}
           </div>
         </div>
       </section>
+
+      {/* Confirmation Modal */}
+      {cycleToSubmit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-500 mb-4 mx-auto">
+                <AlertTriangle size={24} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Publish Final Results?</h3>
+              <p className="text-sm text-slate-500 text-center mb-6">
+                Are you sure you want to finalize the results for <strong>{cycleToSubmit.title}</strong>? Once published, this ranking cycle will be closed and results will be recorded in history.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setCycleToSubmit(null)}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleConfirmSubmit}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-2.5 bg-primary hover:bg-primary-dark text-white text-sm font-bold rounded-xl shadow-lg shadow-primary/30 transition-colors cursor-pointer disabled:opacity-50 flex justify-center items-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <><Loader2 size={16} className="animate-spin" /> Submitting...</>
+                  ) : (
+                    'Confirm Publish'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

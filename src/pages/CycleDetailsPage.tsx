@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, Search, Filter, CheckCircle2, User, Loader2, X } from 'lucide-react';
-// Replaced Firebase imports with Supabase
-import { supabase } from '../supabaseClient'; // Adjust path as needed
+import { supabase } from '../supabaseClient'; 
 import FacultyDetailModal from '../components/FacultyDetailModal'; 
 
 interface CycleStats {
@@ -21,7 +20,7 @@ interface CycleState {
   stats: CycleStats;
 }
 
-interface RankingEntry {
+export interface RankingEntry {
   id: string; 
   name: string;
   department: string;
@@ -62,7 +61,7 @@ const CycleDetailsPage = () => {
       try {
         setLoading(true);
         
-        // 1. Fetch Cycle Details from Supabase
+        // 1. Fetch Cycle Details
         const { data: cycleData, error: cycleError } = await supabase
           .from('ranking_cycles')
           .select('*')
@@ -75,17 +74,16 @@ const CycleDetailsPage = () => {
           return;
         }
         
-        // 2. Fetch Applications with Joined User and Department Data
-        // This replaces the multiple Firebase reads with a single relational query
+       // 2. Fetch Applications with Joined User and Department Data
         const { data: appsData, error: appsError } = await supabase
           .from('applications')
           .select(`
             *,
-            users:faculty_id (
+            users!applications_faculty_id_fkey ( 
               name_first,
               name_last,
               department_id,
-              departments:department_id (
+              departments (
                 department_name
               )
             )
@@ -110,9 +108,13 @@ const CycleDetailsPage = () => {
             pendingCount++;
           }
 
-          // Parse the joined user and department data
-          const user = appData.users || {};
-          const departmentData = user.departments || {};
+          // Supabase joins can sometimes return arrays instead of objects depending on constraints. 
+          // This safely handles both.
+          const userObj = Array.isArray(appData.users) ? appData.users[0] : appData.users;
+          const user = userObj || {};
+          
+          const deptObj = Array.isArray(user.departments) ? user.departments[0] : user.departments;
+          const departmentData = deptObj || {};
 
           let facultyName = "Unknown Faculty";
           if (user.name_last || user.name_first) {
@@ -120,16 +122,15 @@ const CycleDetailsPage = () => {
             if (facultyName.endsWith(',')) facultyName = facultyName.slice(0, -1);
           }
 
-          // Fallback logic for department parsing based on your schema
           let department = departmentData.department_name || 
             (user.department_id ? `Dept ${user.department_id}` : 'Unknown Dept');
 
           return {
-            id: String(appData.application_id), // Using standard SQL primary key
+            id: String(appData.application_id), 
             name: facultyName,
             department: department,
             points: Number(appData.final_score) || 0,
-            dbStatus: appData.status,
+            dbStatus: appData.status || 'Pending',
             originalData: appData
           };
         });
@@ -141,7 +142,7 @@ const CycleDetailsPage = () => {
           setCycle({
             title: cycleData.title || 'Ranking Cycle',
             semester: cycleData.semester || 'N/A',
-            year: cycleData.year || 'N/A',
+            year: cycleData.year ? String(cycleData.year) : 'N/A',
             status: cycleData.status === 'open' ? 'In Progress' : 'Closed',
             stats: {
               totalFaculty,
@@ -176,7 +177,7 @@ const CycleDetailsPage = () => {
       case 'Pending_VPAA':
         return { label: 'Under Review', classes: 'bg-amber-50 text-amber-600 border border-amber-100', icon: false };
       default:
-        return { label: dbStatus.replace('_', ' '), classes: 'bg-slate-50 text-slate-500 border border-slate-200', icon: false };
+        return { label: (dbStatus || 'Pending').replace(/_/g, ' '), classes: 'bg-slate-50 text-slate-500 border border-slate-200', icon: false };
     }
   };
 
@@ -207,7 +208,9 @@ const CycleDetailsPage = () => {
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `${cycle.title.replace(/\s+/g, '_')}_Rankings.csv`;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(link.href);
   };
 
