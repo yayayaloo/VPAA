@@ -28,7 +28,9 @@ function App() {
           }
         >
           <Route path="/dashboard" element={<DashboardPage />} />
+          {/* UPDATED: Changed path and added /:id to catch the cycle.id */}
           <Route path="/faculty-review" element={<FacultyReviewPage />} />
+          <Route path="/FacultyReviewPage/:id" element={<FacultyReviewPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/history/:id" element={<CycleDetailsPage />} />
           <Route path="/HistoryPage/:id" element={<HistoryPage />} />
@@ -36,6 +38,7 @@ function App() {
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* Unmatched routes fallback to login */}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </Router>

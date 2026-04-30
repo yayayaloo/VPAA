@@ -31,13 +31,13 @@ interface Area {
 const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailModalProps) => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [downloading, setDownloading] = useState(false); // Added for download state
   const [fullUserData, setFullUserData] = useState<any>(null); 
   const [appData, setAppData] = useState<any>(null);
   const [areas, setAreas] = useState<Area[]>([]);
 
   useEffect(() => {
     const fetchAllData = async () => {
-      // Get the Application ID from the prop (handles different possible prop structures)
       const appId = faculty?.application_id || faculty?.id;
       if (!appId) {
         console.warn("No application ID found in faculty prop");
@@ -47,7 +47,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       try {
         setLoading(true);
         
-        // 1. Fetch Application Data (Crucial: gets us the faculty_id)
         const { data: applicationData, error: appError } = await supabase
           .from('applications')
           .select('*')
@@ -57,7 +56,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
         if (appError) throw appError;
         setAppData(applicationData);
 
-        // 2. Fetch User Data & Join Department
         if (applicationData?.faculty_id) {
           const { data: userData, error: userError } = await supabase
             .from('users')
@@ -75,7 +73,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
           }
         }
 
-        // 3. Fetch Master Areas List
         const { data: areasData, error: areasError } = await supabase
           .from('areas')
           .select('*')
@@ -83,7 +80,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
           
         if (areasError) throw areasError;
 
-        // 4. Fetch Area Submissions for this application
         const { data: submissionsData, error: subError } = await supabase
           .from('area_submissions')
           .select('*')
@@ -91,7 +87,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
         
         if (subError) throw subError;
 
-        // Create a lookup dictionary for submissions by area_id
         const fetchedSubmissions: Record<string, any> = {};
         if (submissionsData) {
           submissionsData.forEach(docData => {
@@ -100,12 +95,9 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
           });
         }
 
-        // 5. Merge Master Areas with Submissions
         if (areasData) {
           const mergedAreas = areasData.map(area => {
             const submission = fetchedSubmissions[String(area.area_id)];
-            
-            // Priority: VPAA points, fallback to HR points, fallback to 0
             const currentPoints = submission ? (submission.vpaa_points ?? submission.hr_points ?? 0) : 0;
             
             return {
@@ -131,6 +123,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     fetchAllData();
   }, [faculty]);
 
+  // --- REVIEW COMPLETED LOGIC ---
   const handleCompleteReview = async () => {
     const appId = faculty?.application_id || faculty?.id;
     if (!appId) return;
@@ -138,10 +131,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     try {
       setUpdating(true);
       
-      const { error } = await supabase
-        .from('applications')
-        .update({ status: 'Reviewed' })
-        .eq('application_id', appId);
+      // ✅ Matches the database constraint exactly
+const { error } = await supabase
+  .from('applications')
+  .update({ status: 'For_Publishing' }) // Or 'Published', 'Under_VPAA_Review', etc.
+  .eq('application_id', appId);
       
       if (error) throw error;
       
@@ -149,27 +143,78 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       onClose(); 
     } catch (error) {
       console.error("Failed to update status", error);
+      alert("Failed to complete review. Please try again.");
     } finally {
       setUpdating(false);
     }
   };
 
-  if (!faculty) return null;
-
-  // Safe variables for rendering
+  // Safe variables for rendering & downloading
   const totalPoints = areas.reduce((sum, area) => sum + area.current, 0);
-
-  // Construct Name
   const firstName = fullUserData?.name_first || '';
   const middleInitial = fullUserData?.name_middle ? `${fullUserData.name_middle.charAt(0)}.` : '';
   const lastName = fullUserData?.name_last || '';
   const fullName = `${firstName} ${middleInitial} ${lastName}`.trim() || 'N/A';
-
-  // Extract Department Name
+  
   const deptData = fullUserData?.departments;
   const departmentName = deptData 
     ? (Array.isArray(deptData) ? deptData[0]?.department_name : deptData.department_name) 
     : 'Not specified';
+
+  // --- DOWNLOAD RESULT LOGIC ---
+  const handleDownloadResult = () => {
+    setDownloading(true);
+    try {
+      // 1. Prepare the CSV content rows
+      const rows = [
+        ["Faculty Evaluation Result"],
+        [""],
+        ["Name:", fullName],
+        ["Department:", departmentName],
+        ["Present Rank:", fullUserData?.current_rank || appData?.current_rank_at_time || 'N/A'],
+        ["Nature of Appointment:", fullUserData?.nature_of_appointment || 'Permanent'],
+        [""],
+        ["--- SCORE BREAKDOWN ---"],
+        ["Area", "Max Points", "Points Earned"],
+        ...areas.map(area => [
+          `"${area.title}"`, // Wrapped in quotes to handle commas inside area titles
+          area.max, 
+          area.current
+        ]),
+        [""],
+        ["TOTAL POINTS:", "", totalPoints.toFixed(2)],
+        [""],
+        ["--- QUALIFICATIONS ---"],
+        ["Experience:", "QUALIFIED FOR PROFESSOR I - V"],
+        ["Teaching Performance:", "QUALIFIED FOR PROFESSOR I - V"],
+        ["Research Output:", "NOT QUALIFIED"],
+        ["Eligibility:", "NOT QUALIFIED"],
+      ];
+
+      // 2. Convert rows to a valid CSV string format
+      const csvContent = rows.map(e => e.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      // 3. Create a temporary link to trigger the browser download
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${fullName.replace(/\s+/g, '_')}_Evaluation.csv`);
+      document.body.appendChild(link);
+      link.click();
+      
+      // 4. Cleanup
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error generating download", error);
+      alert("Failed to download file.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  if (!faculty) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -277,7 +322,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                   </div>
                 </div>
               </section>
-
             </div>
           </div>
 
@@ -367,14 +411,19 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 </div>
               </div>
 
+              {/* ACTION BUTTONS */}
               <div className="flex gap-4">
-                <button className="flex-1 py-3.5 bg-[#3b82f6] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-blue-600 transition-colors flex items-center justify-center gap-2">
-                  <Download size={16} />
+                <button 
+                  onClick={handleDownloadResult}
+                  disabled={downloading || loading}
+                  className="flex-1 py-3.5 bg-[#3b82f6] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-blue-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   Download Result
                 </button>
                 <button 
                   onClick={handleCompleteReview}
-                  disabled={updating}
+                  disabled={updating || loading}
                   className="flex-1 py-3.5 bg-[#0a5e2f] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-[#084b25] transition-colors shadow-lg shadow-[#0a5e2f]/20 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {updating ? <Loader2 size={16} className="animate-spin" /> : 'Review Completed'}

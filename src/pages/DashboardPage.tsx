@@ -33,6 +33,40 @@ const DashboardPage = () => {
 
   useEffect(() => {
     fetchDashboardData();
+
+    // --- NEW: Real-time listener for new notifications ---
+    const notificationSubscription = supabase
+      .channel('custom-insert-channel')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          const newData = payload.new;
+          const logDate = newData.created_at ? new Date(newData.created_at) : new Date();
+          const timeString = logDate.toLocaleDateString('en-US', { 
+            month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' 
+          });
+
+          const newActivity: ActivityLog = {
+            id: String(newData.id),
+            user: 'System Notification',
+            action: newData.message || 'New system update',
+            time: timeString,
+            isRead: newData.is_read || false
+          };
+
+          // Add new notification to the top of the list and keep only the latest 5
+          setActivities((prevActivities) => {
+            return [newActivity, ...prevActivities].slice(0, 5);
+          });
+        }
+      )
+      .subscribe();
+
+    // Cleanup subscription on unmount
+    return () => {
+      supabase.removeChannel(notificationSubscription);
+    };
   }, []);
 
   const fetchDashboardData = async () => {
@@ -110,6 +144,7 @@ const DashboardPage = () => {
     }
   };
 
+// --- NEW: Function to handle cycle submission ---
   // --- NEW: Function to handle cycle submission ---
   const handleConfirmSubmit = async () => {
     if (!cycleToSubmit) return;
@@ -118,14 +153,14 @@ const DashboardPage = () => {
     try {
       const today = new Date().toISOString();
 
-      // Update the status and published_date in Supabase
+      // ✅ Changed to 'deadline' to perfectly match your schema diagram
       const { error } = await supabase
         .from('ranking_cycles')
         .update({ 
-          status: 'closed', // Or whatever your closed status string is ('completed', 'published', etc.)
-          published_date: today 
+          status: 'closed', 
+          deadline: today   
         })
-        .eq('cycle_id', cycleToSubmit.id); // Assuming the PK is 'cycle_id' based on your previous files
+        .eq('cycle_id', cycleToSubmit.id);
 
       if (error) throw error;
 
@@ -138,7 +173,7 @@ const DashboardPage = () => {
                 status: 'Completed', 
                 isCurrent: false, 
                 badge: 'CLOSED',
-                published: new Date(today).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                deadline: new Date(today).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
               } 
             : c
         );
@@ -234,7 +269,8 @@ const DashboardPage = () => {
                   
                   {cycle.isCurrent ? (
                     <div className="flex gap-2">
-                      <Link to={`/cycle/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 mr-2">
+                      {/* --- UPDATED LINK HERE --- */}
+                      <Link to={`/FacultyReviewPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 mr-2">
                         Review Details
                       </Link>
                       <button 
