@@ -12,11 +12,12 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { supabase } from '../supabaseClient'; 
+import { apiService } from '../services/api';
 
 interface FacultyDetailModalProps {
   faculty: any; 
   onClose: () => void;
-  onStatusUpdate?: () => void; 
+  onStatusUpdate?: (facultyId: string) => Promise<void> | void;
 }
 
 interface Area {
@@ -132,21 +133,23 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
   }, [faculty]);
 
   const handleCompleteReview = async () => {
-    const appId = faculty?.application_id || faculty?.id;
-    if (!appId) return;
+    const facultyId = faculty?.id;
+    if (!facultyId) return;
 
     try {
       setUpdating(true);
-      
-      const { error } = await supabase
-        .from('applications')
-        .update({ status: 'Reviewed' })
-        .eq('application_id', appId);
-      
-      if (error) throw error;
-      
-      if (onStatusUpdate) onStatusUpdate();
-      onClose(); 
+
+      const response = await apiService.markReviewComplete(String(facultyId));
+
+      if (response.error) {
+        throw new Error(response.error);
+      }
+
+      if (onStatusUpdate) {
+        await onStatusUpdate(String(facultyId));
+      }
+
+      onClose();
     } catch (error) {
       console.error("Failed to update status", error);
     } finally {

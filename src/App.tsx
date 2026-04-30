@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import FacultyReviewPage from './pages/FacultyReviewPage';
 import HistoryPage from './pages/HistoryPage';
 import CycleDetailsPage from './pages/CycleDetailsPage';
+import EvaluationToolPage from './pages/EvaluationToolPage';
 import ProtectedRoute from './components/ProtectedRoute'; // <-- Import your new route guard
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
+          <Route path="/evaluation" element={<EvaluationToolPage />} />
         </Route>
 
         {/* Dashboard Routes (Protected) */}

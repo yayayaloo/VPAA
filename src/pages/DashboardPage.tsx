@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, CheckCircle2, Clock, Activity as ActivityIcon, BellRing, AlertTriangle, Loader2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient'; 
+import RecentActivities from '../components/RecentActivities'; 
 
 interface Cycle {
   id: string;
@@ -14,17 +15,8 @@ interface Cycle {
   badge: string | null;
 }
 
-interface ActivityLog {
-  id: string;
-  user: string;
-  action: string;
-  time: string;
-  isRead: boolean;
-}
-
 const DashboardPage = () => {
   const [cycles, setCycles] = useState<Cycle[]>([]);
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   // New states for the submission process
@@ -74,34 +66,6 @@ const DashboardPage = () => {
       // Sort cycles: current ones first
       fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
       setCycles(fetchedCycles);
-
-      // 2. Fetch Notifications
-      const { data: notifData, error: notifError } = await supabase
-        .from('notifications')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (notifError) {
-        console.warn("Could not fetch notifications.", notifError);
-        setActivities([]);
-      } else {
-        const fetchedLogs: ActivityLog[] = (notifData || []).map((data) => {
-          const logDate = data.created_at ? new Date(data.created_at) : null;
-          const timeString = logDate 
-            ? logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 
-            : 'Unknown time';
-
-          return {
-            id: String(data.id),
-            user: 'System Notification', 
-            action: data.message || 'New system update',
-            time: timeString,
-            isRead: data.is_read || false
-          };
-        });
-        setActivities(fetchedLogs);
-      }
 
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
@@ -264,38 +228,9 @@ const DashboardPage = () => {
         </div>
       </section>
 
-      {/* System Notifications Section */}
-      <section>
-        <div className="mb-6">
-          <h3 className="text-lg font-bold text-sidebar">System Notifications</h3>
-          <p className="text-xs text-slate-500">Latest alerts and updates from the portal</p>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="divide-y divide-slate-100">
-            {activities.length > 0 ? activities.map((activity) => (
-              <div key={activity.id} className={`p-4 hover:bg-slate-50 transition-colors flex justify-between items-center ${!activity.isRead ? 'bg-primary/5' : ''}`}>
-                <div>
-                  <h5 className="text-sm font-bold text-slate-800">{activity.user}</h5>
-                  <p className={`text-[13px] font-medium mt-1 ${!activity.isRead ? 'text-primary' : 'text-slate-600'}`}>
-                    {activity.action}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">{activity.time}</p>
-                </div>
-                {!activity.isRead && (
-                  <div className="bg-primary/10 text-primary p-2 rounded-full">
-                    <BellRing size={16} />
-                  </div>
-                )}
-              </div>
-            )) : (
-              <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
-                <ActivityIcon size={24} className="opacity-20" />
-                No recent notifications recorded.
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Recent Activities Section */}
+      <section aria-label="Recent Activities">
+        <RecentActivities />
       </section>
 
       {/* Confirmation Modal */}
