@@ -106,8 +106,11 @@ const DashboardPage = () => {
       });
 
       // Sort cycles: current ones first
+      // Sort cycles: current ones first
       fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
-      setCycles(fetchedCycles);
+      
+      // Limit to showing only 4 cycles maximum
+      setCycles(fetchedCycles.slice(0, 4));
 
       // 2. Fetch Notifications
       const { data: notifData, error: notifError } = await supabase

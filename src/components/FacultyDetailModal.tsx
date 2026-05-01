@@ -95,23 +95,42 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
           });
         }
 
-        if (areasData) {
-          const mergedAreas = areasData.map(area => {
-            const submission = fetchedSubmissions[String(area.area_id)];
-            const currentPoints = submission ? (submission.vpaa_points ?? submission.hr_points ?? 0) : 0;
-            
-            return {
-              id: String(area.area_id),
-              title: area.area_name || `Area ${area.area_id}`,
-              max: Number(area.max_possible_points) || 0,
-              current: Number(currentPoints),
-              fileUrl: submission?.file_path || '', 
-              color: 'bg-[#0a5e2f]' 
-            };
-          });
+     // ... inside fetchAllData ...
+
+if (areasData) {
+  const mergedAreas = areasData.map(area => {
+    const submission = fetchedSubmissions[String(area.area_id)];
+    const currentPoints = submission ? (submission.vpaa_points ?? submission.hr_points ?? 0) : 0;
+    
+    // Transform the file_path into a real URL
+    let fullFileUrl = '';
+    if (submission?.file_path) {
+      // If it's already an absolute URL (e.g., from an external source), just use it
+      if (submission.file_path.startsWith('http')) {
+        fullFileUrl = submission.file_path;
+      } else {
+        // Generate the Supabase public URL
+        // ⚠️ IMPORTANT: Replace 'submissions_bucket' with your actual Supabase bucket name!
+        const { data } = supabase.storage
+          .from('submissions_bucket') 
+          .getPublicUrl(submission.file_path);
           
-          setAreas(mergedAreas);
-        }
+        fullFileUrl = data.publicUrl;
+      }
+    }
+
+    return {
+      id: String(area.area_id),
+      title: area.area_name || `Area ${area.area_id}`,
+      max: Number(area.max_possible_points) || 0,
+      current: Number(currentPoints),
+      fileUrl: fullFileUrl, // Use the generated full URL here
+      color: 'bg-[#0a5e2f]' 
+    };
+  });
+  
+  setAreas(mergedAreas);
+}
 
       } catch (err) {
         console.error("Error in fetchAllData pipeline:", err);
