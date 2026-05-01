@@ -203,25 +203,29 @@ const DashboardPage = () => {
   }
 
   return (
-    <div className="space-y-10 relative">
+    <div className="space-y-6 md:space-y-10 relative px-4 sm:px-6 md:px-0">
       {/* Ranking Cycle History Section */}
-      <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
-        <div className=" flex justify-between items-center mb-6">
+      <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 sm:p-6 md:p-8">
+        
+        {/* Responsive Header: Stacks on mobile, inline on tablet+ */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-6">
           <div>
             <h3 className="text-base font-bold text-sidebar">Ranking Cycle History</h3>
             <p className="text-xs text-slate-500">All cycles you have participated in or that are currently open</p>
           </div>
-          <div className="bg-primary/5 text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/10">
+          <div className="bg-primary/5 text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/10 self-start sm:self-auto">
             {cycles.length} Cycles
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {cycles.map((cycle) => (
+        {/* Grid layout is already perfect for 4 items (1 full row + 3 bottom row on desktop) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+          {/* Added .slice(0, 4) here to enforce the 4-cycle limit visually */}
+          {cycles.slice(0, 4).map((cycle) => (
             <div 
               key={cycle.id}
               className={`
-                relative p-6 rounded-2xl border transition-all
+                relative p-5 sm:p-6 rounded-2xl border transition-all
                 ${cycle.isCurrent 
                   ? 'bg-primary/[0.03] border-primary shadow-lg shadow-primary/5 col-span-full' 
                   : 'bg-white border-slate-200 hover:border-primary/30 hover:shadow-md'}
@@ -234,16 +238,17 @@ const DashboardPage = () => {
               )}
 
               <div className="flex flex-col h-full">
-                <div className="mb-6 flex justify-between items-start">
+                <div className="mb-4 sm:mb-6 flex justify-between items-start">
                   <div>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider mb-2 block ${cycle.isCurrent ? 'text-primary' : 'text-slate-400'}`}>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block ${cycle.isCurrent ? 'text-primary' : 'text-slate-400'}`}>
                       {cycle.isCurrent ? 'Current Cycle' : 'Completed'}
                     </span>
-                    <h4 className="text-lg font-bold text-slate-800">{cycle.title}</h4>
+                    <h4 className="text-base sm:text-lg font-bold text-slate-800">{cycle.title}</h4>
                   </div>
                 </div>
 
-                <div className="flex gap-8 mb-8">
+                {/* Responsive Dates: Wrapped flexbox to prevent mobile overflow */}
+                <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8 mb-6 sm:mb-8">
                   <div>
                     <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Started</p>
                     <p className="text-xs font-semibold text-slate-700">{cycle.started}</p>
@@ -262,8 +267,9 @@ const DashboardPage = () => {
                   )}
                 </div>
 
-                <div className="mt-auto flex justify-between items-center">
-                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold ${
+                {/* Responsive Footer: Stacks actions on very small screens */}
+                <div className="mt-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold w-fit ${
                     cycle.isCurrent ? 'bg-primary/10 text-primary' : 'bg-emerald-50 text-emerald-600'
                   }`}>
                     {cycle.isCurrent ? <Clock size={12} /> : <CheckCircle2 size={12} />}
@@ -271,21 +277,20 @@ const DashboardPage = () => {
                   </div>
                   
                   {cycle.isCurrent ? (
-                    <div className="flex gap-2">
-                      {/* --- UPDATED LINK HERE --- */}
-                      <Link to={`/FacultyReviewPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 mr-2">
+                    <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto mt-2 sm:mt-0">
+                      <Link to={`/FacultyReviewPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1">
                         Review Details
                       </Link>
                       <button 
                         onClick={() => setCycleToSubmit(cycle)}
-                        className="bg-primary text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center gap-2 cursor-pointer"
+                        className="bg-primary text-white px-3 sm:px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center justify-center gap-2 cursor-pointer flex-1 sm:flex-none"
                       >
-                        Submit Final Results 
+                        Submit Final 
                         <ArrowRight size={14} />
                       </button>
                     </div>
                   ) : (
-                    <Link to={`/HistoryPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group">
+                    <Link to={`/HistoryPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group mt-2 sm:mt-0">
                       See more
                       <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                     </Link>
@@ -303,26 +308,26 @@ const DashboardPage = () => {
         </div>
       </section>
 
-      {/* System Notifications Section */}
-      <section>
-        <div className="mb-6">
-          <h3 className="text-lg font-bold text-sidebar">System Notifications</h3>
+      {/* System Notifications Section (Already highly responsive) */}
+      <section className="px-4 sm:px-0">
+        <div className="mb-4 sm:mb-6">
+          <h3 className="text-base sm:text-lg font-bold text-sidebar">System Notifications</h3>
           <p className="text-xs text-slate-500">Latest alerts and updates from the portal</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="divide-y divide-slate-100">
             {activities.length > 0 ? activities.map((activity) => (
-              <div key={activity.id} className={`p-4 hover:bg-slate-50 transition-colors flex justify-between items-center ${!activity.isRead ? 'bg-primary/5' : ''}`}>
-                <div>
+              <div key={activity.id} className={`p-4 hover:bg-slate-50 transition-colors flex justify-between items-center gap-4 ${!activity.isRead ? 'bg-primary/5' : ''}`}>
+                <div className="flex-1">
                   <h5 className="text-sm font-bold text-slate-800">{activity.user}</h5>
-                  <p className={`text-[13px] font-medium mt-1 ${!activity.isRead ? 'text-primary' : 'text-slate-600'}`}>
+                  <p className={`text-xs sm:text-[13px] font-medium mt-1 leading-snug ${!activity.isRead ? 'text-primary' : 'text-slate-600'}`}>
                     {activity.action}
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-1">{activity.time}</p>
+                  <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1">{activity.time}</p>
                 </div>
                 {!activity.isRead && (
-                  <div className="bg-primary/10 text-primary p-2 rounded-full">
+                  <div className="bg-primary/10 text-primary p-2 rounded-full shrink-0">
                     <BellRing size={16} />
                   </div>
                 )}
@@ -341,6 +346,7 @@ const DashboardPage = () => {
       {cycleToSubmit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal content remains the same */}
             <div className="p-6">
               <div className="flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-500 mb-4 mx-auto">
                 <AlertTriangle size={24} />
@@ -349,18 +355,18 @@ const DashboardPage = () => {
               <p className="text-sm text-slate-500 text-center mb-6">
                 Are you sure you want to finalize the results for <strong>{cycleToSubmit.title}</strong>? Once published, this ranking cycle will be closed and results will be recorded in history.
               </p>
-              <div className="flex gap-3">
+              <div className="flex flex-col-reverse sm:flex-row gap-3">
                 <button 
                   onClick={() => setCycleToSubmit(null)}
                   disabled={isSubmitting}
-                  className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                  className="flex-1 px-4 py-2.5 sm:py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={handleConfirmSubmit}
                   disabled={isSubmitting}
-                  className="flex-1 px-4 py-2.5 bg-primary hover:bg-primary-dark text-white text-sm font-bold rounded-xl shadow-lg shadow-primary/30 transition-colors cursor-pointer disabled:opacity-50 flex justify-center items-center gap-2"
+                  className="flex-1 px-4 py-2.5 sm:py-3 bg-primary hover:bg-primary-dark text-white text-sm font-bold rounded-xl shadow-lg shadow-primary/30 transition-colors cursor-pointer disabled:opacity-50 flex justify-center items-center gap-2"
                 >
                   {isSubmitting ? (
                     <><Loader2 size={16} className="animate-spin" /> Submitting...</>
