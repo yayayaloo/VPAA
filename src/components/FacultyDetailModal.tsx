@@ -32,9 +32,18 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [downloading, setDownloading] = useState(false); 
+  const [isCompleted, setIsCompleted] = useState(false);
+  
   const [fullUserData, setFullUserData] = useState<any>(null); 
   const [appData, setAppData] = useState<any>(null);
   const [areas, setAreas] = useState<Area[]>([]);
+
+  // Qualification States
+  const [qualExperience, setQualExperience] = useState("QUALIFIED FOR PROFESSOR I - V");
+  const [qualDegree, setQualDegree] = useState("QUALIFIED FOR PROFESSOR I - V");
+  const [qualTeaching, setQualTeaching] = useState("QUALIFIED");
+  const [qualResearch, setQualResearch] = useState("NOT QUALIFIED");
+  const [qualEligibility, setQualEligibility] = useState("NOT QUALIFIED");
 
   useEffect(() => {
     const fetchAllData = async () => {
@@ -55,6 +64,15 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
 
         if (appError) throw appError;
         setAppData(applicationData);
+
+        // Load existing qualifications from the database if they exist
+        if (applicationData) {
+          if (applicationData.qual_experience) setQualExperience(applicationData.qual_experience);
+          if (applicationData.qual_degree) setQualDegree(applicationData.qual_degree);
+          if (applicationData.qual_teaching) setQualTeaching(applicationData.qual_teaching);
+          if (applicationData.qual_research) setQualResearch(applicationData.qual_research);
+          if (applicationData.qual_eligibility) setQualEligibility(applicationData.qual_eligibility);
+        }
 
         if (applicationData?.faculty_id) {
           const { data: userData, error: userError } = await supabase
@@ -143,17 +161,31 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     try {
       setUpdating(true);
       
+      // Save status AND qualifications to Supabase
       const { error } = await supabase
         .from('applications')
-        .update({ status: 'For_Publishing' })
+        .update({ 
+          status: 'For_Publishing',
+          qual_experience: qualExperience,
+          qual_degree: qualDegree,
+          qual_teaching: qualTeaching,
+          qual_research: qualResearch,
+          qual_eligibility: qualEligibility
+        })
         .eq('application_id', appId);
       
       if (error) throw error;
       
+      setIsCompleted(true);
       if (onStatusUpdate) onStatusUpdate();
-      onClose(); 
+      
+      // Delay before closing
+      setTimeout(() => {
+        onClose(); 
+      }, 700);
+
     } catch (error) {
-      console.error("Failed to update status", error);
+      console.error("Failed to update status and qualifications", error);
       alert("Failed to complete review. Please try again.");
     } finally {
       setUpdating(false);
@@ -193,10 +225,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
         ["TOTAL POINTS:", "", totalPoints.toFixed(2)],
         [""],
         ["--- QUALIFICATIONS ---"],
-        ["Experience:", "QUALIFIED FOR PROFESSOR I - V"],
-        ["Teaching Performance:", "QUALIFIED FOR PROFESSOR I - V"],
-        ["Research Output:", "NOT QUALIFIED"],
-        ["Eligibility:", "NOT QUALIFIED"],
+        ["Experience:", qualExperience],
+        ["Degree:", qualDegree],
+        ["Teaching Experience:", qualTeaching],
+        ["Research Output:", qualResearch],
+        ["Eligibility:", qualEligibility],
       ];
 
       const csvContent = rows.map(e => e.join(",")).join("\n");
@@ -219,6 +252,9 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     }
   };
 
+  // Check if already completed (disables button)
+  const isAlreadyCompleted = isCompleted || appData?.status === 'For_Publishing';
+
   if (!faculty) return null;
 
   return (
@@ -237,10 +273,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
           <X size={20} className="text-slate-500 sm:w-6 sm:h-6" />
         </button>
 
-        {/* Responsive Layout Core: 
-          Scrolls as a single column on mobile (overflow-y-auto).
-          Splits into two independently scrolling columns on desktop (md:flex-row md:overflow-hidden).
-        */}
         <div className="flex flex-col md:flex-row flex-1 overflow-y-auto md:overflow-hidden">
           
           {/* Left Side: Profile Info */}
@@ -392,38 +424,97 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
               </div>
 
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-4">Qualification</h3>
-              <div className="space-y-3 mb-6 md:mb-8 bg-slate-50 p-4 md:p-5 rounded-2xl border border-slate-100">
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 sm:gap-0">
+              <div className="space-y-4 mb-6 md:mb-8 bg-slate-50 p-4 md:p-5 rounded-2xl border border-slate-100">
+                
+                {/* EXPERIENCE Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
                   <span className="text-xs font-semibold text-slate-600 uppercase">Experience</span>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-[11px] sm:text-xs text-slate-500">QUALIFIED FOR PROFESSOR I - V</span>
-                    <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualExperience}
+                      onChange={(e) => setQualExperience(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED FOR PROFESSOR I - V">QUALIFIED FOR PROFESSOR I - V</option>
+                      <option value="QUALIFIED FOR ASSOCIATE PROF. I - V">QUALIFIED FOR ASSOCIATE PROF. I - V</option>
+                      <option value="QUALIFIED FOR ASSISTANT PROF. I - IV">QUALIFIED FOR ASSISTANT PROF. I - IV</option>
+                      <option value="QUALIFIED FOR INSTRUCTOR I - III">QUALIFIED FOR INSTRUCTOR I - III</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualExperience === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
                   </div>
                 </div>
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 sm:gap-0">
-                  <span className="text-xs font-semibold text-slate-600 uppercase">Teaching Performance</span>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-[11px] sm:text-xs text-slate-500">QUALIFIED FOR PROFESSOR I - V</span>
-                    <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />
+
+                {/* DEGREE Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
+                  <span className="text-xs font-semibold text-slate-600 uppercase">Degree</span>
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualDegree}
+                      onChange={(e) => setQualDegree(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED FOR PROFESSOR I - V">QUALIFIED FOR PROFESSOR I - V</option>
+                      <option value="QUALIFIED FOR ASSOCIATE PROF. I - V">QUALIFIED FOR ASSOCIATE PROF. I - V</option>
+                      <option value="QUALIFIED FOR ASSISTANT PROF. I - IV">QUALIFIED FOR ASSISTANT PROF. I - IV</option>
+                      <option value="QUALIFIED FOR INSTRUCTOR I - III">QUALIFIED FOR INSTRUCTOR I - III</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualDegree === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
                   </div>
                 </div>
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 sm:gap-0">
+
+                {/* TEACHING EXPERIENCE Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
+                  <span className="text-xs font-semibold text-slate-600 uppercase">Teaching Experience</span>
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualTeaching}
+                      onChange={(e) => setQualTeaching(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED">QUALIFIED</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualTeaching === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
+                  </div>
+                </div>
+
+                {/* RESEARCH OUTPUT Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
                   <span className="text-xs font-semibold text-slate-600 uppercase">Research Output</span>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-[11px] sm:text-xs text-slate-500">NOT QUALIFIED</span>
-                    <XCircle className="text-red-500 shrink-0" size={16} />
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualResearch}
+                      onChange={(e) => setQualResearch(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED">QUALIFIED</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualResearch === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
                   </div>
                 </div>
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 sm:gap-0">
+
+                {/* ELIGIBILITY Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
                   <span className="text-xs font-semibold text-slate-600 uppercase">Eligibility</span>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-[11px] sm:text-xs text-slate-500">NOT QUALIFIED</span>
-                    <XCircle className="text-red-500 shrink-0" size={16} />
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualEligibility}
+                      onChange={(e) => setQualEligibility(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED">QUALIFIED</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualEligibility === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
                   </div>
                 </div>
+
               </div>
 
-              {/* ACTION BUTTONS: Stack on small screens, side-by-side on larger */}
+              {/* ACTION BUTTONS */}
               <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4">
                 <button 
                   onClick={handleDownloadResult}
@@ -435,10 +526,16 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 </button>
                 <button 
                   onClick={handleCompleteReview}
-                  disabled={updating || loading}
-                  className="w-full sm:flex-1 py-3.5 bg-[#0a5e2f] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-[#084b25] transition-colors shadow-lg shadow-[#0a5e2f]/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                  disabled={updating || loading || isAlreadyCompleted}
+                  className="w-full sm:flex-1 py-3.5 bg-[#0a5e2f] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-[#084b25] transition-colors shadow-lg shadow-[#0a5e2f]/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {updating ? <Loader2 size={16} className="animate-spin" /> : 'Review Completed'}
+                  {updating ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : isAlreadyCompleted ? (
+                    'Review Already Completed'
+                  ) : (
+                    'Review Completed'
+                  )}
                 </button>
               </div>
             </div>
