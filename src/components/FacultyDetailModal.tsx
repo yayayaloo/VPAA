@@ -8,7 +8,9 @@ import {
   CheckCircle2, 
   XCircle, 
   Download, 
-  Loader2 
+  Loader2,
+  ChevronDown,
+  FileText
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { supabase } from '../supabaseClient'; 
@@ -19,12 +21,24 @@ interface FacultyDetailModalProps {
   onStatusUpdate?: () => void; 
 }
 
+interface FileItem {
+  url: string;
+  fileName: string;
+  points: number;
+}
+
+interface GroupedSubmissions {
+  partName: string;
+  files: FileItem[];
+  totalPointsForPart: number;
+}
+
 interface Area {
   id: string;
   title: string;
   max: number;
-  current: number;
-  fileUrl: string;
+  current: number; // Sum of points from all grouped submissions
+  groupedSubmissions: GroupedSubmissions[]; 
   color: string;
 }
 
@@ -33,6 +47,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
   const [updating, setUpdating] = useState(false);
   const [downloading, setDownloading] = useState(false); 
   const [isCompleted, setIsCompleted] = useState(false);
+  const [openAreaAccordions, setOpenAreaAccordions] = useState<Record<number, boolean>>({}); 
   
   const [fullUserData, setFullUserData] = useState<any>(null); 
   const [appData, setAppData] = useState<any>(null);
@@ -105,38 +120,80 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
         
         if (subError) throw subError;
 
-        const fetchedSubmissions: Record<string, any> = {};
+        // Group submissions into arrays per area_id to manage multiple files
+        const fetchedSubmissions: Record<string, any[]> = {};
         if (submissionsData) {
           submissionsData.forEach(docData => {
              const areaId = String(docData.area_id);
-             fetchedSubmissions[areaId] = docData;
+             if (!fetchedSubmissions[areaId]) {
+               fetchedSubmissions[areaId] = []; 
+             }
+             fetchedSubmissions[areaId].push(docData); 
           });
         }
 
         if (areasData) {
           const mergedAreas = areasData.map(area => {
-            const submission = fetchedSubmissions[String(area.area_id)];
-            const currentPoints = submission ? (submission.vpaa_points ?? submission.hr_points ?? 0) : 0;
-            
-            let fullFileUrl = '';
-            if (submission?.file_path) {
-              if (submission.file_path.startsWith('http')) {
-                fullFileUrl = submission.file_path;
-              } else {
-                const { data } = supabase.storage
-                  .from('submissions_bucket') 
-                  .getPublicUrl(submission.file_path);
-                  
-                fullFileUrl = data.publicUrl;
+            const submissions = fetchedSubmissions[String(area.area_id)] || [];
+            const partSubmissionsMap: Record<string, FileItem[]> = {};
+            let areaCurrentPoints = 0;
+
+            submissions.forEach(sub => {
+              // Determine partName even if file_path is null. 
+              // We fallback to checking sub.part_name just in case your DB has it.
+              let partName = 'Other';
+              if (sub.file_path) {
+                partName = sub.file_path.split('/').find((p: string) => p.startsWith('Part ')) || 'Other';
+              } else if (sub.part_name) {
+                partName = sub.part_name;
               }
-            }
+
+              let fullFileUrl = '';
+              let fileName = 'No PDF available';
+
+              if (sub.file_path) {
+                if (sub.file_path.startsWith('http')) {
+                  fullFileUrl = sub.file_path;
+                } else {
+                  const { data } = supabase.storage
+                    .from('documents') 
+                    .getPublicUrl(sub.file_path);
+                    
+                  fullFileUrl = data.publicUrl;
+                }
+                fileName = sub.file_path.split('/').pop() || 'Untitled File';
+              }
+
+              const submissionPoints = (sub.vpaa_points ?? sub.hr_points ?? 0);
+              areaCurrentPoints += submissionPoints;
+
+              const fileItem = {
+                url: fullFileUrl,
+                fileName: fileName,
+                points: submissionPoints
+              };
+
+              if (!partSubmissionsMap[partName]) {
+                partSubmissionsMap[partName] = [];
+              }
+              partSubmissionsMap[partName].push(fileItem);
+            });
+
+            // Convert map to sorted array of GroupedSubmissions objects
+            const groupedSubmissions = Object.entries(partSubmissionsMap)
+              .map(([partName, files]) => ({
+                partName,
+                files,
+                totalPointsForPart: files.reduce((sum, file) => sum + file.points, 0)
+              }))
+              .sort((a, b) => a.partName.localeCompare(b.partName)); 
 
             return {
               id: String(area.area_id),
               title: area.area_name || `Area ${area.area_id}`,
               max: Number(area.max_possible_points) || 0,
-              current: Number(currentPoints),
-              fileUrl: fullFileUrl,
+              current: areaCurrentPoints,
+              groupedSubmissions,
               color: 'bg-[#0a5e2f]' 
             };
           });
@@ -154,6 +211,10 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     fetchAllData();
   }, [faculty]);
 
+  const toggleAreaAccordion = (idx: number) => {
+    setOpenAreaAccordions(prev => ({...prev, [idx]: !prev[idx]}));
+  };
+
   const handleCompleteReview = async () => {
     const appId = faculty?.application_id || faculty?.id;
     if (!appId) return;
@@ -161,7 +222,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     try {
       setUpdating(true);
       
-      // Save status AND qualifications to Supabase
       const { error } = await supabase
         .from('applications')
         .update({ 
@@ -179,7 +239,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       setIsCompleted(true);
       if (onStatusUpdate) onStatusUpdate();
       
-      // Delay before closing
       setTimeout(() => {
         onClose(); 
       }, 700);
@@ -252,7 +311,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     }
   };
 
-  // Check if already completed (disables button)
   const isAlreadyCompleted = isCompleted || appData?.status === 'For_Publishing';
 
   if (!faculty) return null;
@@ -382,24 +440,61 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
               <h3 className="text-sm md:text-base font-bold text-slate-800 uppercase tracking-wide mb-4 md:mb-6">Submitted Areas</h3>
               <div className="space-y-4 md:space-y-6">
                 {areas.length > 0 ? areas.map((area, idx) => (
-                  <div key={idx} className="group">
-                    <div className="flex justify-between items-end mb-2">
+                  <div key={idx} className="group overflow-hidden rounded-lg border border-slate-100 bg-white">
+                    <div className="flex justify-between items-center cursor-pointer p-4 transition hover:bg-slate-50" onClick={() => toggleAreaAccordion(idx)}>
                       <div className="flex-1 pr-4 md:pr-6">
                         <p className="text-xs font-bold text-slate-700 leading-tight mb-1">{area.title}</p>
                         <p className="text-[10px] text-slate-400 font-medium">Max: {area.max.toFixed(2)} pts <span className="text-yellow-500 ml-1">+0 excess</span></p>
                       </div>
-                      <div className="text-right flex flex-col items-end shrink-0">
-                        <span className="text-sm font-bold text-[#0a5e2f]">{area.current.toFixed(2)}</span>
-                        {area.fileUrl ? (
-                          <a href={area.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-[#0a5e2f] hover:underline mt-1">
-                            view file
-                          </a>
-                        ) : (
-                          <span className="text-[11px] font-medium text-slate-300 mt-1">No file</span>
-                        )}
+                      <div className="text-right flex items-center gap-3 shrink-0">
+                        <span className="text-sm font-bold text-[#0a5e2f]">{area.current.toFixed(2)} pts</span>
+                        <ChevronDown className={`w-5 h-5 text-slate-400 transform transition-transform ${openAreaAccordions[idx] ? 'rotate-180' : ''}`} />
                       </div>
                     </div>
-                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+
+                    {/* Collapsible Panel with grouped files per area */}
+                    {openAreaAccordions[idx] && (
+                        <div className="p-4 pt-0 border-t border-slate-100 bg-slate-50/50">
+                            {area.groupedSubmissions && area.groupedSubmissions.length > 0 ? (
+                                area.groupedSubmissions.map((groupedSub, groupedIdx) => (
+                                    <div key={groupedIdx} className="mb-3 last:mb-0">
+                                        <div className="flex justify-between items-center mb-1.5 pt-2 border-t border-dashed border-slate-200">
+                                            <p className="text-[11px] font-bold text-slate-600 tracking-wider uppercase">{groupedSub.partName}</p>
+                                            <span className="text-[10px] font-semibold text-[#0a5e2f] bg-green-50 px-2 py-0.5 rounded-full">{groupedSub.totalPointsForPart.toFixed(2)} pts total</span>
+                                        </div>
+                                        {groupedSub.files.map((file, fileIdx) => (
+                                            <div key={fileIdx} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-100 mb-1 last:mb-0 shadow-sm">
+                                                <div className="flex items-center gap-2.5 overflow-hidden">
+                                                    <div className="flex-shrink-0 flex items-center justify-center bg-green-50 rounded-lg p-2">
+                                                        <FileText className="w-5 h-5 text-[#0a5e2f]" />
+                                                    </div>
+                                                    <div className='flex-1 overflow-hidden'>
+                                                        <p className={`text-[11px] font-semibold truncate ${file.url ? 'text-slate-800' : 'text-slate-400 italic'}`} title={file.fileName}>{file.fileName}</p>
+                                                        <p className="text-[10px] text-slate-400 font-medium">{file.points.toFixed(2)} pts awarded</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right flex flex-col items-end shrink-0 pl-3">
+                                                    {file.url ? (
+                                                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-[#0a5e2f] hover:underline mt-1 bg-[#d7f4e7] px-3 py-1.5 rounded-full">
+                                                          view file
+                                                      </a>
+                                                    ) : (
+                                                      <span className="text-[10px] font-semibold text-slate-500 mt-1 bg-slate-100 px-3 py-1.5 rounded-full">
+                                                          no pdf available
+                                                      </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-sm text-slate-500 italic py-2">No files available for this area.</p>
+                            )}
+                        </div>
+                    )}
+                    
+                    <div className="h-1.5 bg-slate-100 rounded-b-lg overflow-hidden">
                       <motion.div 
                         initial={{ width: 0 }}
                         animate={{ width: `${Math.min((area.current / area.max) * 100, 100)}%` }}
@@ -419,7 +514,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 <span className="text-sm font-bold text-slate-800">TOTAL POINTS:</span>
                 <div className="text-right flex flex-col sm:block">
                   <span className="text-[10px] text-slate-400 sm:mr-4 mb-1 sm:mb-0">Max: 200.00 pts</span>
-                  <span className="text-base font-bold text-[#0a5e2f]">{totalPoints.toFixed(2)}</span>
+                  <span className="text-base font-bold text-[#0a5e2f]">{totalPoints.toFixed(2)} pts</span>
                 </div>
               </div>
 
