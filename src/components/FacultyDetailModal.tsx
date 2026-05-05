@@ -37,7 +37,7 @@ interface Area {
   id: string;
   title: string;
   max: number;
-  current: number; // Sum of points from all grouped submissions
+  current: number; 
   groupedSubmissions: GroupedSubmissions[]; 
   color: string;
 }
@@ -120,6 +120,26 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
         
         if (subError) throw subError;
 
+        // NEW: Fetch criteria titles from area_submission_criteria_score
+        const { data: criteriaData, error: criteriaError } = await supabase
+          .from('area_submission_criteria_score')
+          .select('submission_id, criterion_title')
+          .eq('application_id', appId);
+        
+        if (criteriaError) {
+          console.error("Error fetching criteria scores:", criteriaError);
+        }
+
+        // Map submission_id to its criterion_title for quick lookup
+        const titleMap: Record<number, string> = {};
+        if (criteriaData) {
+          criteriaData.forEach(item => {
+            if (item.submission_id && item.criterion_title) {
+              titleMap[item.submission_id] = item.criterion_title;
+            }
+          });
+        }
+
         // Group submissions into arrays per area_id to manage multiple files
         const fetchedSubmissions: Record<string, any[]> = {};
         if (submissionsData) {
@@ -139,13 +159,19 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
             let areaCurrentPoints = 0;
 
             submissions.forEach(sub => {
-              // Determine partName even if file_path is null. 
-              // We fallback to checking sub.part_name just in case your DB has it.
-              let partName = 'Other';
-              if (sub.file_path) {
-                partName = sub.file_path.split('/').find((p: string) => p.startsWith('Part ')) || 'Other';
-              } else if (sub.part_name) {
-                partName = sub.part_name;
+              // 1. Try to get title from criteria map first
+              // 2. Fallback to file path parsing
+              // 3. Fallback to part_name column if exists
+              let partName = titleMap[sub.submission_id];
+              
+              if (!partName) {
+                if (sub.file_path) {
+                  partName = sub.file_path.split('/').find((p: string) => p.startsWith('Part ')) || 'Other';
+                } else if (sub.part_name) {
+                  partName = sub.part_name;
+                } else {
+                  partName = 'Other';
+                }
               }
 
               let fullFileUrl = '';

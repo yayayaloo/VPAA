@@ -70,10 +70,11 @@ const FacultyReviewPage = () => {
         setLoading(true);
         
         // 1. Fetch the active cycle using exact PK: cycle_id
+        // Updated to include all active statuses matching your database logic
         const { data: cycleSnap, error: cycleError } = await supabase
           .from('ranking_cycles')
           .select('cycle_id') 
-          .eq('status', 'open')
+          .in('status', ['open', 'submissions_closed', 'finished']) 
           .limit(1);
           
         if (cycleError) throw cycleError;

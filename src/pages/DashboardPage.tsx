@@ -93,19 +93,27 @@ const DashboardPage = () => {
           ? new Date(data.published_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
           : undefined;
 
+        // Any status other than 'closed' means the cycle is still active/current
+        const isCycleOpen = data.status !== 'closed';
+
+        // Optionally, format the exact database status to look nicer, or stick to 'In Progress'
+        // For example: if status is 'submissions_closed', it becomes 'Submissions Closed'
+        const displayStatus = isCycleOpen 
+          ? data.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+          : 'Completed';
+
         return {
           id: String(data.cycle_id || data.id), 
           title: data.title || `${data.semester} AY ${data.year}`,
-          status: data.status === 'open' ? 'In Progress' : 'Completed',
-          isCurrent: data.status === 'open',
+          status: displayStatus, // Uses the formatted DB string if not closed
+          isCurrent: isCycleOpen,
           started: startDate,
           deadline: deadlineDate,
           published: publishedDate,
-          badge: data.status !== 'open' ? 'CLOSED' : null
+          badge: !isCycleOpen ? 'CLOSED' : null
         };
       });
 
-      // Sort cycles: current ones first
       // Sort cycles: current ones first
       fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
       
@@ -147,7 +155,6 @@ const DashboardPage = () => {
     }
   };
 
-// --- NEW: Function to handle cycle submission ---
   // --- NEW: Function to handle cycle submission ---
   const handleConfirmSubmit = async () => {
     if (!cycleToSubmit) return;
@@ -241,7 +248,7 @@ const DashboardPage = () => {
                 <div className="mb-4 sm:mb-6 flex justify-between items-start">
                   <div>
                     <span className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block ${cycle.isCurrent ? 'text-primary' : 'text-slate-400'}`}>
-                      {cycle.isCurrent ? 'Current Cycle' : 'Completed'}
+                      {cycle.isCurrent ? 'Active Cycle' : 'Completed'}
                     </span>
                     <h4 className="text-base sm:text-lg font-bold text-slate-800">{cycle.title}</h4>
                   </div>

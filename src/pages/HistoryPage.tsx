@@ -64,12 +64,15 @@ const HistoryPage = () => {
             highestAverage = Number(avgPoints);
           }
 
+          // Updated logic to match active cycle statuses
+          const isActive = ['open', 'submissions_closed', 'finished'].includes(data.status);
+
           fetchedCycles.push({
             cycle_id: String(data.cycle_id),
             title: data.title || `${data.semester || 'Semester'} ${data.year || 'Year'}`,
             semester: data.semester || 'N/A',
             year: String(data.year || 'N/A'),
-            status: data.status === 'open' ? 'Active' : 'Closed', 
+            status: isActive ? 'Active' : 'Closed', 
             started: formatDate(data.start_date),
             published: formatDate(data.deadline),
             totalFaculty,
