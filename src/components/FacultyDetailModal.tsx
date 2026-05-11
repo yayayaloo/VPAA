@@ -243,7 +243,8 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
 
   const handleCompleteReview = async () => {
     const facultyId = faculty?.id;
-    if (!facultyId) return;
+    const appId = faculty?.application_id;
+    if (!facultyId || !appId) return;
 
     try {
       setUpdating(true);
@@ -263,7 +264,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       if (error) throw error;
       
       setIsCompleted(true);
-      if (onStatusUpdate) onStatusUpdate();
+      if (onStatusUpdate) onStatusUpdate(String(facultyId));
       
       setTimeout(() => {
         onClose(); 

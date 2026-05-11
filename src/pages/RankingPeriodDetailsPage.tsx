@@ -4,7 +4,7 @@ import { ArrowLeft, Download, Search, Filter, CheckCircle2, User, Loader2, X } f
 import { supabase } from '../supabaseClient'; 
 import FacultyDetailModal from '../components/FacultyDetailModal'; 
 
-interface CycleStats {
+interface RankingPeriodStats {
   totalFaculty: number;
   completed: number;
   underReview: number;
@@ -13,12 +13,12 @@ interface CycleStats {
   totalPoints: number;
 }
 
-interface CycleState {
+interface RankingPeriodState {
   title: string;
   semester: string;
   year: string;
   status: string;
-  stats: CycleStats;
+  stats: RankingPeriodStats;
 }
 
 export interface RankingEntry {
@@ -30,7 +30,7 @@ export interface RankingEntry {
   originalData: any;
 }
 
-const CycleDetailsPage = () => {
+const RankingPeriodDetailsPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   
@@ -44,7 +44,7 @@ const CycleDetailsPage = () => {
   const [isFacultyModalOpen, setIsFacultyModalOpen] = useState(false);
   const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null);
 
-  const [cycle, setCycle] = useState<CycleState>({
+  const [rankingPeriod, setRankingPeriod] = useState<RankingPeriodState>({
     title: '',
     semester: '',
     year: '',
@@ -56,21 +56,21 @@ const CycleDetailsPage = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const fetchCycleDetails = async () => {
+    const fetchRankingPeriodDetails = async () => {
       if (!id) return;
       
       try {
         setLoading(true);
         
-        // 1. Fetch Cycle Details
-        const { data: cycleData, error: cycleError } = await supabase
+        // 1. Fetch Ranking Period Details
+        const { data: rankingPeriodData, error: rankingPeriodError } = await supabase
           .from('ranking_cycles')
           .select('*')
           .eq('cycle_id', id)
           .single();
         
-        if (cycleError || !cycleData) {
-          console.error("Cycle not found or error fetching:", cycleError);
+        if (rankingPeriodError || !rankingPeriodData) {
+          console.error("Ranking Period not found or error fetching:", rankingPeriodError);
           if (isMounted) setLoading(false);
           return;
         }
@@ -142,15 +142,15 @@ const CycleDetailsPage = () => {
         resolvedRankings.sort((a, b) => b.points - a.points);
         const totalFaculty = appsData ? appsData.length : 0;
 
-        // Expanded logic to match what constitutes an active cycle
-        const isCycleActive = ['open', 'submissions_closed', 'finished'].includes(cycleData.status);
+        // Expanded logic to match what constitutes an active ranking period
+        const isRankingPeriodActive = ['open', 'submissions_closed', 'finished'].includes(rankingPeriodData.status);
 
         if (isMounted) {
-          setCycle({
-            title: cycleData.title || 'Ranking Cycle',
-            semester: cycleData.semester || 'N/A',
-            year: cycleData.year ? String(cycleData.year) : 'N/A',
-            status: isCycleActive ? 'Active' : 'Closed',
+          setRankingPeriod({
+            title: rankingPeriodData.title || 'Ranking Period',
+            semester: rankingPeriodData.semester || 'N/A',
+            year: rankingPeriodData.year ? String(rankingPeriodData.year) : 'N/A',
+            status: isRankingPeriodActive ? 'Active' : 'Closed',
             stats: {
               totalFaculty,
               completed: completedCount,
@@ -164,13 +164,13 @@ const CycleDetailsPage = () => {
         }
 
       } catch (error) {
-        console.error("Error fetching cycle details from Supabase:", error);
+        console.error("Error fetching ranking period details from Supabase:", error);
       } finally {
         if (isMounted) setLoading(false);
       }
     };
 
-    fetchCycleDetails();
+    fetchRankingPeriodDetails();
 
     return () => {
       isMounted = false;
@@ -224,7 +224,7 @@ const CycleDetailsPage = () => {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${cycle.title.replace(/\s+/g, '_')}_Rankings.csv`;
+    link.download = `${rankingPeriod.title.replace(/\s+/g, '_')}_Rankings.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -244,22 +244,22 @@ const CycleDetailsPage = () => {
   };
 
   // Safe percentage calculations for display
-  const completionPercentage = cycle.stats.totalFaculty > 0 ? Math.round((cycle.stats.completed / cycle.stats.totalFaculty) * 100) : 0;
+  const completionPercentage = rankingPeriod.stats.totalFaculty > 0 ? Math.round((rankingPeriod.stats.completed / rankingPeriod.stats.totalFaculty) * 100) : 0;
   const rawMaxPoints = Math.max(...facultyRankings.map(f => f.points), 1);
   const safeMaxPoints = rawMaxPoints > 0 ? rawMaxPoints : 1; // Prevents division by 0 in the table visuals
 
   // Card Dynamic Colors
-  const isCycleActive = cycle.status === 'Active';
-  const statusCardBg = isCycleActive ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200';
-  const statusLabelColor = isCycleActive ? 'text-emerald-700' : 'text-slate-500';
-  const statusDotColor = isCycleActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400';
-  const statusTextColor = isCycleActive ? 'text-emerald-800' : 'text-slate-700';
+  const isRankingPeriodActive = rankingPeriod.status === 'Active';
+  const statusCardBg = isRankingPeriodActive ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200';
+  const statusLabelColor = isRankingPeriodActive ? 'text-emerald-700' : 'text-slate-500';
+  const statusDotColor = isRankingPeriodActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400';
+  const statusTextColor = isRankingPeriodActive ? 'text-emerald-800' : 'text-slate-700';
 
   if (loading) {
     return (
       <div className="flex h-[80vh] items-center justify-center flex-col gap-4">
         <Loader2 className="animate-spin text-primary" size={40} />
-        <p className="text-sm font-semibold text-slate-500 animate-pulse">Loading cycle data...</p>
+        <p className="text-sm font-semibold text-slate-500 animate-pulse">Loading ranking period data...</p>
       </div>
     );
   }
@@ -274,31 +274,31 @@ const CycleDetailsPage = () => {
           <ArrowLeft size={20} />
         </button>
         <div>
-          <h2 className="text-xl font-bold text-sidebar">{cycle.title}</h2>
+          <h2 className="text-xl font-bold text-sidebar">{rankingPeriod.title}</h2>
           <p className="text-[11px] font-bold text-primary uppercase tracking-wider mt-0.5 mb-1">
-            {cycle.semester} • AY {cycle.year}
+            {rankingPeriod.semester} • AY {rankingPeriod.year}
           </p>
-          <p className="text-xs text-slate-500">Comprehensive cycle report and faculty rankings</p>
+          <p className="text-xs text-slate-500">Comprehensive ranking period report and faculty rankings</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className={`${statusCardBg} border p-6 rounded-2xl transition-colors`}>
-          <p className={`text-[10px] font-bold ${statusLabelColor} uppercase tracking-wider mb-2`}>Cycle Status</p>
+          <p className={`text-[10px] font-bold ${statusLabelColor} uppercase tracking-wider mb-2`}>Ranking Period Status</p>
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${statusDotColor}`} />
-            <h4 className={`text-xl font-bold ${statusTextColor}`}>{cycle.status}</h4>
+            <h4 className={`text-xl font-bold ${statusTextColor}`}>{rankingPeriod.status}</h4>
           </div>
         </div>
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm flex flex-col justify-center">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Total Faculty</p>
-          <h4 className="text-2xl font-bold text-sidebar">{cycle.stats.totalFaculty}</h4>
+          <h4 className="text-2xl font-bold text-sidebar">{rankingPeriod.stats.totalFaculty}</h4>
         </div>
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Completion Rate</p>
           <div className="flex items-end gap-2">
             <h4 className="text-2xl font-bold text-sidebar">{completionPercentage}%</h4>
-            <p className="text-xs text-slate-400 mb-1">({cycle.stats.completed}/{cycle.stats.totalFaculty})</p>
+            <p className="text-xs text-slate-400 mb-1">({rankingPeriod.stats.completed}/{rankingPeriod.stats.totalFaculty})</p>
           </div>
           <div className="w-full h-1.5 bg-slate-100 rounded-full mt-3 overflow-hidden">
              <div className="bg-amber-500 h-full rounded-full transition-all" style={{ width: `${completionPercentage}%` }} />
@@ -307,10 +307,10 @@ const CycleDetailsPage = () => {
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Total & Avg Points</p>
           <div className="flex items-end gap-2">
-            <h4 className="text-2xl font-bold text-sidebar">{cycle.stats.totalPoints}</h4>
+            <h4 className="text-2xl font-bold text-sidebar">{rankingPeriod.stats.totalPoints}</h4>
             <p className="text-xs text-slate-400 mb-1">Total</p>
           </div>
-          <p className="text-[11px] font-semibold text-primary mt-1">Avg: {cycle.stats.avgPoints} pts/faculty</p>
+          <p className="text-[11px] font-semibold text-primary mt-1">Avg: {rankingPeriod.stats.avgPoints} pts/faculty</p>
         </div>
       </div>
 
@@ -368,7 +368,7 @@ const CycleDetailsPage = () => {
               {filteredRankings.length === 0 ? (
                  <tr>
                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-slate-500">
-                     {searchTerm || activeFilterCount > 0 ? 'No faculty found matching your filters.' : 'No faculty applications found for this cycle.'}
+                     {searchTerm || activeFilterCount > 0 ? 'No faculty found matching your filters.' : 'No faculty applications found for this ranking period.'}
                    </td>
                  </tr>
               ) : (
@@ -396,7 +396,7 @@ const CycleDetailsPage = () => {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            {/* Bar scales dynamically against the highest earner in the cycle */}
+                            {/* Bar scales dynamically against the highest earner in the ranking period */}
                             <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${(faculty.points / safeMaxPoints) * 100}%` }} />
                           </div>
                           <span className="text-sm font-bold text-slate-800">{faculty.points}</span>
@@ -468,4 +468,4 @@ const CycleDetailsPage = () => {
   );
 };
 
-export default CycleDetailsPage;
+export default RankingPeriodDetailsPage;

@@ -3,7 +3,7 @@ import { CheckCircle2, Search, Filter, ArrowRight, Calendar, Download, Loader2, 
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient'; 
 
-export interface CycleHistory {
+export interface RankingPeriodHistory {
   cycle_id: string;
   title: string;
   semester: string;
@@ -17,12 +17,12 @@ export interface CycleHistory {
 }
 
 const HistoryPage = () => {
-  const [cycles, setCycles] = useState<CycleHistory[]>([]);
+  const [rankingPeriods, setRankingPeriods] = useState<RankingPeriodHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [stats, setStats] = useState({
-    totalCycles: 0,
+    totalRankingPeriods: 0,
     avgParticipation: '0',
     highestAvg: '0'
   });
@@ -33,27 +33,27 @@ const HistoryPage = () => {
         setLoading(true);
 
         const [
-          { data: cyclesData, error: cyclesError },
+          { data: rankingPeriodsData, error: rankingPeriodsError },
           { data: appsData, error: appsError }
         ] = await Promise.all([
           supabase.from('ranking_cycles').select('*'),
           supabase.from('applications').select('cycle_id, final_score')
         ]);
 
-        if (cyclesError) throw cyclesError;
+        if (rankingPeriodsError) throw rankingPeriodsError;
         if (appsError) throw appsError;
 
-        const safeCyclesData = cyclesData || [];
+        const safeRankingPeriodsData = rankingPeriodsData || [];
         const safeAppsData = appsData || [];
         
-        const fetchedCycles: CycleHistory[] = [];
+        const fetchedRankingPeriods: RankingPeriodHistory[] = [];
         let highestAverage = 0;
 
-        safeCyclesData.forEach(data => {
-          const cycleApps = safeAppsData.filter(app => String(app.cycle_id) === String(data.cycle_id));
-          const totalFaculty = cycleApps.length;
+        safeRankingPeriodsData.forEach(data => {
+          const rankingPeriodApps = safeAppsData.filter(app => String(app.cycle_id) === String(data.cycle_id));
+          const totalFaculty = rankingPeriodApps.length;
           
-          const totalPoints = cycleApps.reduce((sum, app) => {
+          const totalPoints = rankingPeriodApps.reduce((sum, app) => {
             const score = Number(app.final_score) || 0;
             return sum + score;
           }, 0);
@@ -64,10 +64,10 @@ const HistoryPage = () => {
             highestAverage = Number(avgPoints);
           }
 
-          // Updated logic to match active cycle statuses
+          // Updated logic to match active ranking period statuses
           const isActive = ['open', 'submissions_closed', 'finished'].includes(data.status);
 
-          fetchedCycles.push({
+          fetchedRankingPeriods.push({
             cycle_id: String(data.cycle_id),
             title: data.title || `${data.semester || 'Semester'} ${data.year || 'Year'}`,
             semester: data.semester || 'N/A',
@@ -81,12 +81,12 @@ const HistoryPage = () => {
           });
         });
 
-        fetchedCycles.sort((a, b) => new Date(b.rawStartDate).getTime() - new Date(a.rawStartDate).getTime());
+        fetchedRankingPeriods.sort((a, b) => new Date(b.rawStartDate).getTime() - new Date(a.rawStartDate).getTime());
 
-        setCycles(fetchedCycles);
+        setRankingPeriods(fetchedRankingPeriods);
         setStats({
-          totalCycles: fetchedCycles.length,
-          avgParticipation: fetchedCycles.length > 0 ? (safeAppsData.length / fetchedCycles.length).toFixed(1) : '0',
+          totalRankingPeriods: fetchedRankingPeriods.length,
+          avgParticipation: fetchedRankingPeriods.length > 0 ? (safeAppsData.length / fetchedRankingPeriods.length).toFixed(1) : '0',
           highestAvg: highestAverage.toFixed(1)
         });
         
@@ -105,20 +105,20 @@ const HistoryPage = () => {
     return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  const handleExport = async (cycleId: string, cycleTitle: string) => {
+  const handleExport = async (rankingPeriodId: string, rankingPeriodTitle: string) => {
     try {
-      setExportingId(cycleId);
+      setExportingId(rankingPeriodId);
 
-      // 1. Fetch all applications for the selected cycle
+      // 1. Fetch all applications for the selected ranking period
       const { data: apps, error: appsError } = await supabase
         .from('applications')
         .select('*')
-        .eq('cycle_id', cycleId);
+        .eq('cycle_id', rankingPeriodId);
 
       if (appsError) throw appsError;
 
       if (!apps || apps.length === 0) {
-        alert("No applications found for this cycle to export.");
+        alert("No applications found for this ranking period to export.");
         setExportingId(null);
         return;
       }
@@ -186,7 +186,7 @@ const HistoryPage = () => {
       
       // 6. Trigger Download
       const link = document.createElement('a');
-      const safeTitle = cycleTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeTitle = rankingPeriodTitle.replace(/[^a-zA-Z0-9]/g, '_');
       link.setAttribute('href', url);
       link.setAttribute('download', `Rankings_${safeTitle}.csv`);
       document.body.appendChild(link);
@@ -201,10 +201,10 @@ const HistoryPage = () => {
     }
   };
 
-  const filteredCycles = cycles.filter(cycle => 
-    cycle.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cycle.semester.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cycle.year.includes(searchTerm)
+  const filteredRankingPeriods = rankingPeriods.filter(rankingPeriod => 
+    rankingPeriod.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    rankingPeriod.semester.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    rankingPeriod.year.includes(searchTerm)
   );
 
   if (loading) {
@@ -222,7 +222,7 @@ const HistoryPage = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-xl font-bold text-sidebar">Ranking History</h2>
-          <p className="text-xs text-slate-500">Archive of all past and current ranking cycles</p>
+          <p className="text-xs text-slate-500">Archive of all past and current ranking periods</p>
         </div>
         
         <div className="flex items-center gap-3 w-full md:w-auto">
@@ -230,7 +230,7 @@ const HistoryPage = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input 
               type="text" 
-              placeholder="Search cycles..." 
+              placeholder="Search ranking periods..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
@@ -245,7 +245,7 @@ const HistoryPage = () => {
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
-          { label: 'Total Cycles', value: stats.totalCycles, color: 'bg-primary' },
+          { label: 'Total Ranking Periods', value: stats.totalRankingPeriods, color: 'bg-primary' },
           { label: 'Avg. Participation', value: stats.avgParticipation, color: 'bg-amber-500' },
           { label: 'Highest Avg. Points', value: stats.highestAvg, color: 'bg-emerald-500' },
           { label: 'System Status', value: 'Live', color: 'bg-sidebar' },
@@ -260,79 +260,79 @@ const HistoryPage = () => {
         ))}
       </div>
 
-      {/* Cycle List */}
+      {/* Ranking Period List */}
       <div className="grid grid-cols-1 gap-4">
-        {filteredCycles.length === 0 ? (
+        {filteredRankingPeriods.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
             <Calendar className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-            <p className="text-slate-500 font-bold">No ranking cycles found.</p>
+            <p className="text-slate-500 font-bold">No ranking periods found.</p>
             <p className="text-sm text-slate-400">Try adjusting your search terms.</p>
           </div>
         ) : (
-          filteredCycles.map((cycle) => (
+          filteredRankingPeriods.map((rankingPeriod) => (
             <div 
-              key={cycle.cycle_id}
+              key={rankingPeriod.cycle_id}
               className="group bg-white p-6 rounded-2xl border border-slate-200 hover:border-primary/40 hover:shadow-md transition-all duration-300"
             >
               <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6">
                 
-                {/* Left Side: Cycle Identifier */}
+                {/* Left Side: Ranking Period Identifier */}
                 <div className="flex items-center gap-5">
                   <div className="w-14 h-14 rounded-xl bg-slate-50 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors border border-slate-100">
                     <Calendar size={24} />
                   </div>
                   <div>
-                    <h4 className="text-lg font-black text-slate-800 mb-0.5">{cycle.title}</h4>
+                    <h4 className="text-lg font-black text-slate-800 mb-0.5">{rankingPeriod.title}</h4>
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                      {cycle.semester} • AY {cycle.year}
+                      {rankingPeriod.semester} • AY {rankingPeriod.year}
                     </p>
                     <div className="flex items-center gap-3">
                       <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full ${
-                        cycle.status === 'Active' ? 'text-primary bg-primary/10 border border-primary/20' : 'text-slate-500 bg-slate-100 border border-slate-200'
+                        rankingPeriod.status === 'Active' ? 'text-primary bg-primary/10 border border-primary/20' : 'text-slate-500 bg-slate-100 border border-slate-200'
                       }`}>
                         <CheckCircle2 size={12} />
-                        {cycle.status}
+                        {rankingPeriod.status}
                       </span>
                       <span className="text-[11px] text-slate-400 font-medium">
-                        Started: {cycle.started}
+                        Started: {rankingPeriod.started}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Middle: Cycle Stats */}
+                {/* Middle: Ranking Period Stats */}
                 <div className="flex items-center gap-8 lg:gap-16 lg:pr-10 border-l border-slate-100 pl-8">
                   <div>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
                       <Users size={12} /> Included
                     </p>
-                    <p className="text-lg font-black text-slate-700">{cycle.totalFaculty} <span className="text-xs font-medium text-slate-400">faculty</span></p>
+                    <p className="text-lg font-black text-slate-700">{rankingPeriod.totalFaculty} <span className="text-xs font-medium text-slate-400">faculty</span></p>
                   </div>
                   <div>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Avg. Points</p>
-                    <p className="text-lg font-black text-slate-700">{cycle.avgPoints}</p>
+                    <p className="text-lg font-black text-slate-700">{rankingPeriod.avgPoints}</p>
                   </div>
                   <div className="hidden md:block">
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">End Date</p>
-                    <p className="text-sm font-bold text-slate-700">{cycle.published}</p>
+                    <p className="text-sm font-bold text-slate-700">{rankingPeriod.published}</p>
                   </div>
                 </div>
 
                 {/* Right Side: Actions */}
                 <div className="flex items-center gap-3 mt-4 lg:mt-0">
                   <button 
-                    onClick={() => handleExport(cycle.cycle_id, cycle.title)}
-                    disabled={exportingId === cycle.cycle_id}
+                    onClick={() => handleExport(rankingPeriod.cycle_id, rankingPeriod.title)}
+                    disabled={exportingId === rankingPeriod.cycle_id}
                     className="flex-1 lg:flex-none px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {exportingId === cycle.cycle_id ? (
+                    {exportingId === rankingPeriod.cycle_id ? (
                       <Loader2 size={14} className="animate-spin" />
                     ) : (
                       <Download size={14} />
                     )}
-                    {exportingId === cycle.cycle_id ? 'Exporting...' : 'Export'}
+                    {exportingId === rankingPeriod.cycle_id ? 'Exporting...' : 'Export'}
                   </button>
-                  <Link to={`/history/${cycle.cycle_id}`} className="flex-1 lg:flex-none px-5 py-2.5 bg-sidebar text-white rounded-xl text-xs font-bold hover:bg-sidebar-dark shadow-sm transition-all group/btn flex items-center justify-center gap-2">
+                  <Link to={`/history/${rankingPeriod.cycle_id}`} className="flex-1 lg:flex-none px-5 py-2.5 bg-sidebar text-white rounded-xl text-xs font-bold hover:bg-sidebar-dark shadow-sm transition-all group/btn flex items-center justify-center gap-2">
                     View Rankings
                     <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
                   </Link>

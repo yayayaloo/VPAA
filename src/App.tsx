@@ -6,7 +6,7 @@ import DashboardLayout from './layouts/DashboardLayout';
 import DashboardPage from './pages/DashboardPage';
 import FacultyReviewPage from './pages/FacultyReviewPage';
 import HistoryPage from './pages/HistoryPage';
-import CycleDetailsPage from './pages/CycleDetailsPage';
+import RankingPeriodDetailsPage from './pages/RankingPeriodDetailsPage';
 import EvaluationToolPage from './pages/EvaluationToolPage';
 import ProtectedRoute from './components/ProtectedRoute'; // <-- Import your new route guard
 
@@ -30,11 +30,11 @@ function App() {
           }
         >
           <Route path="/dashboard" element={<DashboardPage />} />
-          {/* UPDATED: Changed path and added /:id to catch the cycle.id */}
+          {/* UPDATED: Changed path and added /:id to catch the ranking period id */}
           <Route path="/faculty-review" element={<FacultyReviewPage />} />
           <Route path="/FacultyReviewPage/:id" element={<FacultyReviewPage />} />
           <Route path="/history" element={<HistoryPage />} />
-          <Route path="/history/:id" element={<CycleDetailsPage />} />
+          <Route path="/history/:id" element={<RankingPeriodDetailsPage />} />
           <Route path="/HistoryPage/:id" element={<HistoryPage />} />
         </Route>
 

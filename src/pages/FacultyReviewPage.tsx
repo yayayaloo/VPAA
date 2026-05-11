@@ -78,33 +78,33 @@ const FacultyReviewPage = () => {
   const [selectedDepartment, setSelectedDepartment] = useState('All');
 
   useEffect(() => {
-    const fetchFacultyForActiveCycle = async () => {
-      try {
-        setLoading(true);
-        
-        // 1. Fetch the active cycle using exact PK: cycle_id
-        // Updated to include all active statuses matching your database logic
-        const { data: cycleSnap, error: cycleError } = await supabase
-          .from('ranking_cycles')
-          .select('cycle_id') 
-          .in('status', ['open', 'submissions_closed', 'finished']) 
-          .limit(1);
+const fetchFacultyForActiveRankingPeriod = async () => {
+    try {
+      setLoading(true);
+      
+      // 1. Fetch the active ranking period using exact PK: cycle_id
+      // Updated to include all active statuses matching your database logic
+      const { data: rankingPeriodSnap, error: rankingPeriodError } = await supabase
+        .from('ranking_cycles')
+        .select('cycle_id') 
+        .in('status', ['open', 'submissions_closed', 'finished']) 
+        .limit(1);
+      
+      if (rankingPeriodError) {
+        throw rankingPeriodError;
+      }
 
-        if (cycleError) {
-          throw cycleError;
-        }
+      if (!rankingPeriodSnap || rankingPeriodSnap.length === 0) {
+        setFacultyData([]);
+        return;
+      }
 
-        if (!cycleSnap || cycleSnap.length === 0) {
-          setFacultyData([]);
-          return;
-        }
-
-        const activeCycleId = cycleSnap[0].cycle_id;
+      const activeRankingPeriodId = rankingPeriodSnap[0].cycle_id;
 
         const { data: appsSnap, error: appsError } = await supabase
           .from('applications')
           .select('*')
-          .eq('cycle_id', activeCycleId);
+          .eq('cycle_id', activeRankingPeriodId);
 
         if (appsError) {
           throw appsError;
@@ -206,7 +206,7 @@ const FacultyReviewPage = () => {
       }
     };
 
-    fetchFacultyForActiveCycle();
+    fetchFacultyForActiveRankingPeriod();
   }, []);
 
   const stats = [
@@ -227,7 +227,7 @@ const FacultyReviewPage = () => {
     {
       label: 'Total Faculty',
       value: facultyData.length,
-      sub: 'Current Cycle Applicants',
+      sub: 'Current Ranking Period Applicants',
       icon: <FileText className="text-emerald-600" />,
     },
   ];
@@ -414,7 +414,7 @@ const FacultyReviewPage = () => {
       <div className="flex h-[80vh] items-center justify-center flex-col gap-4">
         <Loader2 className="animate-spin text-emerald-600" size={40} />
         <p className="text-sm font-semibold text-slate-500 animate-pulse">
-          Loading active cycle and faculty data...
+          Loading active ranking period and faculty data...
         </p>
       </div>
     );

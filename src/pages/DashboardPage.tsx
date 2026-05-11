@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, CheckCircle2, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock, AlertTriangle, Loader2, BellRing, Activity as ActivityIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../supabaseClient'; 
+import { supabase } from '../supabaseClient';
 
-interface Cycle {
+interface RankingPeriod {
   id: string;
   title: string;
   status: string;
@@ -14,12 +14,21 @@ interface Cycle {
   badge: string | null;
 }
 
+interface ActivityLog {
+  id: string;
+  user: string;
+  action: string;
+  time: string;
+  isRead: boolean;
+}
+
 const DashboardPage = () => {
-  const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [rankingPeriods, setRankingPeriods] = useState<RankingPeriod[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
 
   // New states for the submission process
-  const [cycleToSubmit, setCycleToSubmit] = useState<Cycle | null>(null);
+  const [rankingPeriodToSubmit, setRankingPeriodToSubmit] = useState<RankingPeriod | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -64,14 +73,14 @@ const DashboardPage = () => {
     try {
       setLoading(true);
 
-      // 1. Fetch Cycles from Supabase
-      const { data: cyclesData, error: cyclesError } = await supabase
+      // 1. Fetch Ranking Periods from Supabase
+      const { data: rankingPeriodsData, error: rankingPeriodsError } = await supabase
         .from('ranking_cycles')
         .select('*');
 
-      if (cyclesError) throw cyclesError;
+      if (rankingPeriodsError) throw rankingPeriodsError;
 
-      const fetchedCycles: Cycle[] = (cyclesData || []).map((data) => {
+      const fetchedRankingPeriods: RankingPeriod[] = (rankingPeriodsData || []).map((data) => {
         const startDate = data.start_date 
           ? new Date(data.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
           : 'TBA';
@@ -84,12 +93,12 @@ const DashboardPage = () => {
           ? new Date(data.published_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
           : undefined;
 
-        // Any status other than 'closed' means the cycle is still active/current
-        const isCycleOpen = data.status !== 'closed';
+        // Any status other than 'closed' means the ranking period is still active/current
+        const isRankingPeriodOpen = data.status !== 'closed';
 
         // Optionally, format the exact database status to look nicer, or stick to 'In Progress'
         // For example: if status is 'submissions_closed', it becomes 'Submissions Closed'
-        const displayStatus = isCycleOpen 
+        const displayStatus = isRankingPeriodOpen 
           ? data.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
           : 'Completed';
 
@@ -97,19 +106,19 @@ const DashboardPage = () => {
           id: String(data.cycle_id || data.id), 
           title: data.title || `${data.semester} AY ${data.year}`,
           status: displayStatus, // Uses the formatted DB string if not closed
-          isCurrent: isCycleOpen,
+          isCurrent: isRankingPeriodOpen,
           started: startDate,
           deadline: deadlineDate,
           published: publishedDate,
-          badge: !isCycleOpen ? 'CLOSED' : null
+          badge: !isRankingPeriodOpen ? 'CLOSED' : null
         };
       });
 
-      // Sort cycles: current ones first
-      fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
+      // Sort ranking periods: current ones first
+      fetchedRankingPeriods.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
       
-      // Limit to showing only 4 cycles maximum
-      setCycles(fetchedCycles.slice(0, 4));
+      // Limit to showing only 4 ranking periods maximum
+      setRankingPeriods(fetchedRankingPeriods.slice(0, 4));
 
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
@@ -118,9 +127,9 @@ const DashboardPage = () => {
     }
   };
 
-  // --- NEW: Function to handle cycle submission ---
+  // --- NEW: Function to handle ranking period submission ---
   const handleConfirmSubmit = async () => {
-    if (!cycleToSubmit) return;
+    if (!rankingPeriodToSubmit) return;
     setIsSubmitting(true);
 
     try {
@@ -133,14 +142,14 @@ const DashboardPage = () => {
           status: 'closed', 
           deadline: today   
         })
-        .eq('cycle_id', cycleToSubmit.id);
+        .eq('cycle_id', rankingPeriodToSubmit.id);
 
       if (error) throw error;
 
       // Update the local state instantly so the UI reflects the change
-      setCycles(prevCycles => {
-        const updated = prevCycles.map(c => 
-          c.id === cycleToSubmit.id 
+      setRankingPeriods(prevRankingPeriods => {
+        const updated = prevRankingPeriods.map(c => 
+          c.id === rankingPeriodToSubmit.id 
             ? { 
                 ...c, 
                 status: 'Completed', 
@@ -154,15 +163,15 @@ const DashboardPage = () => {
         return updated.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
       });
 
-      // Optional: Add a system notification that the cycle was published
+      // Optional: Add a system notification that the ranking period was published
       await supabase.from('notifications').insert([
-        { message: `${cycleToSubmit.title} has been finalized and published.`, is_read: false }
+        { message: `${rankingPeriodToSubmit.title} has been finalized and published.`, is_read: false }
       ]);
 
-      setCycleToSubmit(null);
+      setRankingPeriodToSubmit(null);
     } catch (error) {
       console.error("Error submitting final results:", error);
-      alert("There was an error finalizing the cycle. Please try again.");
+      alert("There was an error finalizing the ranking period. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -174,46 +183,46 @@ const DashboardPage = () => {
 
   return (
     <div className="space-y-6 md:space-y-10 relative px-4 sm:px-6 md:px-0">
-      {/* Ranking Cycle History Section */}
+      {/* Ranking Period History Section */}
       <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 sm:p-6 md:p-8">
         
         {/* Responsive Header: Stacks on mobile, inline on tablet+ */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-6">
           <div>
-            <h3 className="text-base font-bold text-sidebar">Ranking Cycle History</h3>
-            <p className="text-xs text-slate-500">All cycles you have participated in or that are currently open</p>
+            <h3 className="text-base font-bold text-sidebar">Ranking Period History</h3>
+            <p className="text-xs text-slate-500">All ranking periods you have participated in or that are currently open</p>
           </div>
           <div className="bg-primary/5 text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/10 self-start sm:self-auto">
-            {cycles.length} Cycles
+            {rankingPeriods.length} Ranking Periods
           </div>
         </div>
 
         {/* Grid layout is already perfect for 4 items (1 full row + 3 bottom row on desktop) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* Added .slice(0, 4) here to enforce the 4-cycle limit visually */}
-          {cycles.slice(0, 4).map((cycle) => (
+          {/* Added .slice(0, 4) here to enforce the 4-ranking-period limit visually */}
+          {rankingPeriods.slice(0, 4).map((rankingPeriod) => (
             <div 
-              key={cycle.id}
+              key={rankingPeriod.id}
               className={`
                 relative p-5 sm:p-6 rounded-2xl border transition-all
-                ${cycle.isCurrent 
+                ${rankingPeriod.isCurrent 
                   ? 'bg-primary/[0.03] border-primary shadow-lg shadow-primary/5 col-span-full' 
                   : 'bg-white border-slate-200 hover:border-primary/30 hover:shadow-md'}
               `}
             >
-              {cycle.badge && (
+              {rankingPeriod.badge && (
                 <span className="absolute top-4 right-4 bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded tracking-tighter">
-                  {cycle.badge}
+                  {rankingPeriod.badge}
                 </span>
               )}
 
               <div className="flex flex-col h-full">
                 <div className="mb-4 sm:mb-6 flex justify-between items-start">
                   <div>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block ${cycle.isCurrent ? 'text-primary' : 'text-slate-400'}`}>
-                      {cycle.isCurrent ? 'Active Cycle' : 'Completed'}
+                    <span className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block ${rankingPeriod.isCurrent ? 'text-primary' : 'text-slate-400'}`}>
+                      {rankingPeriod.isCurrent ? 'Active Ranking Period' : 'Completed'}
                     </span>
-                    <h4 className="text-base sm:text-lg font-bold text-slate-800">{cycle.title}</h4>
+                    <h4 className="text-base sm:text-lg font-bold text-slate-800">{rankingPeriod.title}</h4>
                   </div>
                 </div>
 
@@ -221,18 +230,18 @@ const DashboardPage = () => {
                 <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8 mb-6 sm:mb-8">
                   <div>
                     <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Started</p>
-                    <p className="text-xs font-semibold text-slate-700">{cycle.started}</p>
+                    <p className="text-xs font-semibold text-slate-700">{rankingPeriod.started}</p>
                   </div>
-                  {cycle.deadline && (
+                  {rankingPeriod.deadline && (
                     <div>
                       <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Deadline</p>
-                      <p className="text-xs font-semibold text-slate-700">{cycle.deadline}</p>
+                      <p className="text-xs font-semibold text-slate-700">{rankingPeriod.deadline}</p>
                     </div>
                   )}
-                  {cycle.published && (
+                  {rankingPeriod.published && (
                     <div>
                       <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Published</p>
-                      <p className="text-xs font-semibold text-slate-700">{cycle.published}</p>
+                      <p className="text-xs font-semibold text-slate-700">{rankingPeriod.published}</p>
                     </div>
                   )}
                 </div>
@@ -240,19 +249,19 @@ const DashboardPage = () => {
                 {/* Responsive Footer: Stacks actions on very small screens */}
                 <div className="mt-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
                   <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold w-fit ${
-                    cycle.isCurrent ? 'bg-primary/10 text-primary' : 'bg-emerald-50 text-emerald-600'
+                    rankingPeriod.isCurrent ? 'bg-primary/10 text-primary' : 'bg-emerald-50 text-emerald-600'
                   }`}>
-                    {cycle.isCurrent ? <Clock size={12} /> : <CheckCircle2 size={12} />}
-                    {cycle.status}
+                    {rankingPeriod.isCurrent ? <Clock size={12} /> : <CheckCircle2 size={12} />}
+                    {rankingPeriod.status}
                   </div>
                   
-                  {cycle.isCurrent ? (
+                  {rankingPeriod.isCurrent ? (
                     <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto mt-2 sm:mt-0">
-                      <Link to={`/FacultyReviewPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1">
+                      <Link to={`/FacultyReviewPage/${rankingPeriod.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1">
                         Review Details
                       </Link>
                       <button 
-                        onClick={() => setCycleToSubmit(cycle)}
+                        onClick={() => setRankingPeriodToSubmit(rankingPeriod)}
                         className="bg-primary text-white px-3 sm:px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center justify-center gap-2 cursor-pointer flex-1 sm:flex-none"
                       >
                         Submit Final 
@@ -260,7 +269,7 @@ const DashboardPage = () => {
                       </button>
                     </div>
                   ) : (
-                    <Link to={`/HistoryPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group mt-2 sm:mt-0">
+                    <Link to={`/HistoryPage/${rankingPeriod.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group mt-2 sm:mt-0">
                       See more
                       <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                     </Link>
@@ -270,9 +279,9 @@ const DashboardPage = () => {
             </div>
           ))}
 
-          {cycles.length === 0 && !loading && (
+          {rankingPeriods.length === 0 && !loading && (
              <div className="col-span-full p-8 text-center text-slate-500 text-sm border-2 border-dashed border-slate-200 rounded-2xl">
-               No ranking cycles found. Create one to get started.
+               No ranking periods found. Create one to get started.
              </div>
           )}
         </div>
@@ -313,7 +322,7 @@ const DashboardPage = () => {
       </section>
 
       {/* Confirmation Modal */}
-      {cycleToSubmit && (
+      {rankingPeriodToSubmit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             {/* Modal content remains the same */}
@@ -323,11 +332,49 @@ const DashboardPage = () => {
               </div>
               <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Publish Final Results?</h3>
               <p className="text-sm text-slate-500 text-center mb-6">
-                Are you sure you want to finalize the results for <strong>{cycleToSubmit.title}</strong>? Once published, this ranking cycle will be closed and results will be recorded in history.
+                Are you sure you want to finalize the results for <strong>{rankingPeriodToSubmit.title}</strong>? Once published, this ranking period will be closed and results will be recorded in history.
               </p>
               <div className="flex flex-col-reverse sm:flex-row gap-3">
                 <button 
-                  onClick={() => setCycleToSubmit(null)}
+                  onClick={() => setRankingPeriodToSubmit(null)}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-2.5 sm:py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleConfirmSubmit}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-2.5 sm:py-3 bg-primary hover:bg-primary-dark text-white text-sm font-bold rounded-xl shadow-lg shadow-primary/30 transition-colors cursor-pointer disabled:opacity-50 flex justify-center items-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <><Loader2 size={16} className="animate-spin" /> Submitting...</>
+                  ) : (
+                    'Confirm Publish'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {rankingPeriodToSubmit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal content remains the same */}
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-500 mb-4 mx-auto">
+                <AlertTriangle size={24} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Publish Final Results?</h3>
+              <p className="text-sm text-slate-500 text-center mb-6">
+                Are you sure you want to finalize the results for <strong>{rankingPeriodToSubmit.title}</strong>? Once published, this ranking period will be closed and results will be recorded in history.
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row gap-3">
+                <button 
+                  onClick={() => setRankingPeriodToSubmit(null)}
                   disabled={isSubmitting}
                   className="flex-1 px-4 py-2.5 sm:py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
                 >
