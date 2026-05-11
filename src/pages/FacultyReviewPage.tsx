@@ -566,22 +566,9 @@ const FacultyReviewPage = () => {
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.department}</td>
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.points}</td>
                     <td className="px-8 py-5">
-<<<<<<< HEAD
-                      <span
-                        className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${
-                          faculty.status === 'Reviewed'
-                            ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                            : faculty.status === 'Under Review'
-                              ? 'bg-amber-50 text-amber-600 border-amber-100'
-                              : 'bg-slate-100 text-slate-500 border-slate-200'
-                        }`}
-                      >
-                        {faculty.status.replace('_', ' ')}
-=======
                       {/* Dynamic Color Applied Here */}
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${getStatusStyle(faculty.status)}`}>
                         {faculty.status.replace(/_/g, ' ')}
->>>>>>> 9765384ae717d7be400cc05390318f1d3c281900
                       </span>
                     </td>
                     <td className="px-4 py-5">
