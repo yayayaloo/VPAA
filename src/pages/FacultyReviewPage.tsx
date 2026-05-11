@@ -164,12 +164,8 @@ const FacultyReviewPage = () => {
           const rawPts = Number(appData.final_score || 0);
 
           let displayStatus = appData.status || 'Draft';
-<<<<<<< HEAD
-          if (['Approved_Unpublished', 'Published', 'Reviewed'].includes(appData.status)) {
-=======
           // Preserving your custom status overrides
           if (['Approved_Unpublished', 'Published', 'For_Publishing'].includes(appData.status)) {
->>>>>>> 9765384ae717d7be400cc05390318f1d3c281900
             displayStatus = 'Reviewed';
           } else if (appData.status === 'Pending_VPAA' || appData.status === 'Under_VPAA_Review') {
             displayStatus = 'Under Review';

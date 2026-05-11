@@ -13,8 +13,7 @@ import {
   FileText
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { supabase } from '../supabaseClient'; 
-import { apiService } from '../services/api';
+import { supabase } from '../supabaseClient';
 
 interface FacultyDetailModalProps {
   faculty: any; 

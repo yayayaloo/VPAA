@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { ArrowRight, CheckCircle2, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient'; 
-import RecentActivities from '../components/RecentActivities'; 
 
 interface Cycle {
   id: string;
