@@ -33,6 +33,36 @@ export interface Faculty {
   originalData?: Record<string, unknown>;
 }
 
+// Helper function to determine the color of the status badge
+const getStatusStyle = (status: string) => {
+  const normalizedStatus = status.toLowerCase();
+
+  if (normalizedStatus.includes('published') || normalizedStatus === 'reviewed') {
+    return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  }
+  if (normalizedStatus.includes('for_publishing')) {
+    return 'bg-teal-50 text-teal-700 border-teal-200';
+  }
+  if (normalizedStatus.includes('vpaa') || normalizedStatus === 'under review') {
+    return 'bg-amber-50 text-amber-700 border-amber-200';
+  }
+  if (normalizedStatus.includes('hr')) {
+    return 'bg-blue-50 text-blue-700 border-blue-200';
+  }
+  if (normalizedStatus.includes('submitted')) {
+    return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+  }
+  if (normalizedStatus.includes('draft')) {
+    return 'bg-slate-100 text-slate-600 border-slate-300';
+  }
+  if (normalizedStatus.includes('rejected')) {
+    return 'bg-red-50 text-red-700 border-red-200';
+  }
+
+  // Fallback styling
+  return 'bg-gray-50 text-gray-600 border-gray-200';
+};
+
 const FacultyReviewPage = () => {
   const [facultyData, setFacultyData] = useState<Faculty[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,11 +81,13 @@ const FacultyReviewPage = () => {
     const fetchFacultyForActiveCycle = async () => {
       try {
         setLoading(true);
-
+        
+        // 1. Fetch the active cycle using exact PK: cycle_id
+        // Updated to include all active statuses matching your database logic
         const { data: cycleSnap, error: cycleError } = await supabase
           .from('ranking_cycles')
-          .select('cycle_id')
-          .eq('status', 'open')
+          .select('cycle_id') 
+          .in('status', ['open', 'submissions_closed', 'finished']) 
           .limit(1);
 
         if (cycleError) {
@@ -132,9 +164,14 @@ const FacultyReviewPage = () => {
           const rawPts = Number(appData.final_score || 0);
 
           let displayStatus = appData.status || 'Draft';
+<<<<<<< HEAD
           if (['Approved_Unpublished', 'Published', 'Reviewed'].includes(appData.status)) {
+=======
+          // Preserving your custom status overrides
+          if (['Approved_Unpublished', 'Published', 'For_Publishing'].includes(appData.status)) {
+>>>>>>> 9765384ae717d7be400cc05390318f1d3c281900
             displayStatus = 'Reviewed';
-          } else if (appData.status === 'Pending_VPAA') {
+          } else if (appData.status === 'Pending_VPAA' || appData.status === 'Under_VPAA_Review') {
             displayStatus = 'Under Review';
           }
 
@@ -533,6 +570,7 @@ const FacultyReviewPage = () => {
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.department}</td>
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.points}</td>
                     <td className="px-8 py-5">
+<<<<<<< HEAD
                       <span
                         className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${
                           faculty.status === 'Reviewed'
@@ -543,6 +581,11 @@ const FacultyReviewPage = () => {
                         }`}
                       >
                         {faculty.status.replace('_', ' ')}
+=======
+                      {/* Dynamic Color Applied Here */}
+                      <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${getStatusStyle(faculty.status)}`}>
+                        {faculty.status.replace(/_/g, ' ')}
+>>>>>>> 9765384ae717d7be400cc05390318f1d3c281900
                       </span>
                     </td>
                     <td className="px-4 py-5">

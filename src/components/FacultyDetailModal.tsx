@@ -8,7 +8,9 @@ import {
   CheckCircle2, 
   XCircle, 
   Download, 
-  Loader2 
+  Loader2,
+  ChevronDown,
+  FileText
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { supabase } from '../supabaseClient'; 
@@ -20,25 +22,47 @@ interface FacultyDetailModalProps {
   onStatusUpdate?: (facultyId: string) => Promise<void> | void;
 }
 
+interface FileItem {
+  url: string;
+  fileName: string;
+  points: number;
+}
+
+interface GroupedSubmissions {
+  partName: string;
+  files: FileItem[];
+  totalPointsForPart: number;
+}
+
 interface Area {
   id: string;
   title: string;
   max: number;
-  current: number;
-  fileUrl: string;
+  current: number; 
+  groupedSubmissions: GroupedSubmissions[]; 
   color: string;
 }
 
 const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailModalProps) => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [downloading, setDownloading] = useState(false); 
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [openAreaAccordions, setOpenAreaAccordions] = useState<Record<number, boolean>>({}); 
+  
   const [fullUserData, setFullUserData] = useState<any>(null); 
   const [appData, setAppData] = useState<any>(null);
   const [areas, setAreas] = useState<Area[]>([]);
 
+  // Qualification States
+  const [qualExperience, setQualExperience] = useState("QUALIFIED FOR PROFESSOR I - V");
+  const [qualDegree, setQualDegree] = useState("QUALIFIED FOR PROFESSOR I - V");
+  const [qualTeaching, setQualTeaching] = useState("QUALIFIED");
+  const [qualResearch, setQualResearch] = useState("NOT QUALIFIED");
+  const [qualEligibility, setQualEligibility] = useState("NOT QUALIFIED");
+
   useEffect(() => {
     const fetchAllData = async () => {
-      // Get the Application ID from the prop (handles different possible prop structures)
       const appId = faculty?.application_id || faculty?.id;
       if (!appId) {
         console.warn("No application ID found in faculty prop");
@@ -48,7 +72,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       try {
         setLoading(true);
         
-        // 1. Fetch Application Data (Crucial: gets us the faculty_id)
         const { data: applicationData, error: appError } = await supabase
           .from('applications')
           .select('*')
@@ -58,7 +81,15 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
         if (appError) throw appError;
         setAppData(applicationData);
 
-        // 2. Fetch User Data & Join Department
+        // Load existing qualifications from the database if they exist
+        if (applicationData) {
+          if (applicationData.qual_experience) setQualExperience(applicationData.qual_experience);
+          if (applicationData.qual_degree) setQualDegree(applicationData.qual_degree);
+          if (applicationData.qual_teaching) setQualTeaching(applicationData.qual_teaching);
+          if (applicationData.qual_research) setQualResearch(applicationData.qual_research);
+          if (applicationData.qual_eligibility) setQualEligibility(applicationData.qual_eligibility);
+        }
+
         if (applicationData?.faculty_id) {
           const { data: userData, error: userError } = await supabase
             .from('users')
@@ -76,7 +107,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
           }
         }
 
-        // 3. Fetch Master Areas List
         const { data: areasData, error: areasError } = await supabase
           .from('areas')
           .select('*')
@@ -84,7 +114,6 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
           
         if (areasError) throw areasError;
 
-        // 4. Fetch Area Submissions for this application
         const { data: submissionsData, error: subError } = await supabase
           .from('area_submissions')
           .select('*')
@@ -92,29 +121,106 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
         
         if (subError) throw subError;
 
-        // Create a lookup dictionary for submissions by area_id
-        const fetchedSubmissions: Record<string, any> = {};
-        if (submissionsData) {
-          submissionsData.forEach(docData => {
-             const areaId = String(docData.area_id);
-             fetchedSubmissions[areaId] = docData;
+        // NEW: Fetch criteria titles from area_submission_criteria_score
+        const { data: criteriaData, error: criteriaError } = await supabase
+          .from('area_submission_criteria_score')
+          .select('submission_id, criterion_title')
+          .eq('application_id', appId);
+        
+        if (criteriaError) {
+          console.error("Error fetching criteria scores:", criteriaError);
+        }
+
+        // Map submission_id to its criterion_title for quick lookup
+        const titleMap: Record<number, string> = {};
+        if (criteriaData) {
+          criteriaData.forEach(item => {
+            if (item.submission_id && item.criterion_title) {
+              titleMap[item.submission_id] = item.criterion_title;
+            }
           });
         }
 
-        // 5. Merge Master Areas with Submissions
+        // Group submissions into arrays per area_id to manage multiple files
+        const fetchedSubmissions: Record<string, any[]> = {};
+        if (submissionsData) {
+          submissionsData.forEach(docData => {
+             const areaId = String(docData.area_id);
+             if (!fetchedSubmissions[areaId]) {
+               fetchedSubmissions[areaId] = []; 
+             }
+             fetchedSubmissions[areaId].push(docData); 
+          });
+        }
+
         if (areasData) {
           const mergedAreas = areasData.map(area => {
-            const submission = fetchedSubmissions[String(area.area_id)];
-            
-            // Priority: VPAA points, fallback to HR points, fallback to 0
-            const currentPoints = submission ? (submission.vpaa_points ?? submission.hr_points ?? 0) : 0;
-            
+            const submissions = fetchedSubmissions[String(area.area_id)] || [];
+            const partSubmissionsMap: Record<string, FileItem[]> = {};
+            let areaCurrentPoints = 0;
+
+            submissions.forEach(sub => {
+              // 1. Try to get title from criteria map first
+              // 2. Fallback to file path parsing
+              // 3. Fallback to part_name column if exists
+              let partName = titleMap[sub.submission_id];
+              
+              if (!partName) {
+                if (sub.file_path) {
+                  partName = sub.file_path.split('/').find((p: string) => p.startsWith('Part ')) || 'Other';
+                } else if (sub.part_name) {
+                  partName = sub.part_name;
+                } else {
+                  partName = 'Other';
+                }
+              }
+
+              let fullFileUrl = '';
+              let fileName = 'No PDF available';
+
+              if (sub.file_path) {
+                if (sub.file_path.startsWith('http')) {
+                  fullFileUrl = sub.file_path;
+                } else {
+                  const { data } = supabase.storage
+                    .from('documents') 
+                    .getPublicUrl(sub.file_path);
+                    
+                  fullFileUrl = data.publicUrl;
+                }
+                fileName = sub.file_path.split('/').pop() || 'Untitled File';
+              }
+
+              const submissionPoints = (sub.vpaa_points ?? sub.hr_points ?? 0);
+              areaCurrentPoints += submissionPoints;
+
+              const fileItem = {
+                url: fullFileUrl,
+                fileName: fileName,
+                points: submissionPoints
+              };
+
+              if (!partSubmissionsMap[partName]) {
+                partSubmissionsMap[partName] = [];
+              }
+              partSubmissionsMap[partName].push(fileItem);
+            });
+
+            // Convert map to sorted array of GroupedSubmissions objects
+            const groupedSubmissions = Object.entries(partSubmissionsMap)
+              .map(([partName, files]) => ({
+                partName,
+                files,
+                totalPointsForPart: files.reduce((sum, file) => sum + file.points, 0)
+              }))
+              .sort((a, b) => a.partName.localeCompare(b.partName)); 
+
             return {
               id: String(area.area_id),
               title: area.area_name || `Area ${area.area_id}`,
               max: Number(area.max_possible_points) || 0,
-              current: Number(currentPoints),
-              fileUrl: submission?.file_path || '', 
+              current: areaCurrentPoints,
+              groupedSubmissions,
               color: 'bg-[#0a5e2f]' 
             };
           });
@@ -132,50 +238,111 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     fetchAllData();
   }, [faculty]);
 
+  const toggleAreaAccordion = (idx: number) => {
+    setOpenAreaAccordions(prev => ({...prev, [idx]: !prev[idx]}));
+  };
+
   const handleCompleteReview = async () => {
     const facultyId = faculty?.id;
     if (!facultyId) return;
 
     try {
       setUpdating(true);
-
-      const response = await apiService.markReviewComplete(String(facultyId));
-
-      if (response.error) {
-        throw new Error(response.error);
-      }
-
-      if (onStatusUpdate) {
-        await onStatusUpdate(String(facultyId));
-      }
-
-      onClose();
+      
+      const { error } = await supabase
+        .from('applications')
+        .update({ 
+          status: 'For_Publishing',
+          qual_experience: qualExperience,
+          qual_degree: qualDegree,
+          qual_teaching: qualTeaching,
+          qual_research: qualResearch,
+          qual_eligibility: qualEligibility
+        })
+        .eq('application_id', appId);
+      
+      if (error) throw error;
+      
+      setIsCompleted(true);
+      if (onStatusUpdate) onStatusUpdate();
+      
+      setTimeout(() => {
+        onClose(); 
+      }, 700);
     } catch (error) {
-      console.error("Failed to update status", error);
+      console.error("Failed to update status and qualifications", error);
+      alert("Failed to complete review. Please try again.");
     } finally {
       setUpdating(false);
     }
   };
 
-  if (!faculty) return null;
-
-  // Safe variables for rendering
   const totalPoints = areas.reduce((sum, area) => sum + area.current, 0);
-
-  // Construct Name
   const firstName = fullUserData?.name_first || '';
   const middleInitial = fullUserData?.name_middle ? `${fullUserData.name_middle.charAt(0)}.` : '';
   const lastName = fullUserData?.name_last || '';
   const fullName = `${firstName} ${middleInitial} ${lastName}`.trim() || 'N/A';
-
-  // Extract Department Name
+  
   const deptData = fullUserData?.departments;
   const departmentName = deptData 
     ? (Array.isArray(deptData) ? deptData[0]?.department_name : deptData.department_name) 
     : 'Not specified';
 
+  const handleDownloadResult = () => {
+    setDownloading(true);
+    try {
+      const rows = [
+        ["Faculty Evaluation Result"],
+        [""],
+        ["Name:", fullName],
+        ["Department:", departmentName],
+        ["Present Rank:", fullUserData?.current_rank || appData?.current_rank_at_time || 'N/A'],
+        ["Nature of Appointment:", fullUserData?.nature_of_appointment || 'Permanent'],
+        [""],
+        ["--- SCORE BREAKDOWN ---"],
+        ["Area", "Max Points", "Points Earned"],
+        ...areas.map(area => [
+          `"${area.title}"`,
+          area.max, 
+          area.current
+        ]),
+        [""],
+        ["TOTAL POINTS:", "", totalPoints.toFixed(2)],
+        [""],
+        ["--- QUALIFICATIONS ---"],
+        ["Experience:", qualExperience],
+        ["Degree:", qualDegree],
+        ["Teaching Experience:", qualTeaching],
+        ["Research Output:", qualResearch],
+        ["Eligibility:", qualEligibility],
+      ];
+
+      const csvContent = rows.map(e => e.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${fullName.replace(/\s+/g, '_')}_Evaluation.csv`);
+      document.body.appendChild(link);
+      link.click();
+      
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error generating download", error);
+      alert("Failed to download file.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const isAlreadyCompleted = isCompleted || appData?.status === 'For_Publishing';
+
+  if (!faculty) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
       <motion.div 
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         onClick={onClose}
@@ -184,23 +351,24 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
 
       <motion.div 
         initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
-        className="relative bg-[#f8fafc] w-full max-w-5xl h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col z-10"
+        className="relative bg-[#f8fafc] w-full max-w-5xl h-[95vh] md:h-[90vh] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col z-10"
       >
-        <button onClick={onClose} className="absolute top-6 right-6 p-2 hover:bg-slate-200 rounded-full transition-colors z-20 bg-white/50 backdrop-blur">
-          <X size={24} className="text-slate-500" />
+        <button onClick={onClose} className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2 hover:bg-slate-200 rounded-full transition-colors z-20 bg-white/80 backdrop-blur shadow-sm">
+          <X size={20} className="text-slate-500 sm:w-6 sm:h-6" />
         </button>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col md:flex-row flex-1 overflow-y-auto md:overflow-hidden">
+          
           {/* Left Side: Profile Info */}
-          <div className="w-5/12 p-10 overflow-y-auto border-r border-slate-200 bg-white">
-            <div className="flex items-center gap-3 mb-8">
+          <div className="w-full md:w-5/12 p-5 sm:p-8 md:p-10 md:overflow-y-auto border-b md:border-b-0 md:border-r border-slate-200 bg-white shrink-0">
+            <div className="flex items-center gap-3 mb-6 sm:mb-8 mt-2 sm:mt-0">
               <div className="p-2 text-[#0a5e2f]">
                 <User size={24} />
               </div>
-              <h3 className="text-xl font-bold text-slate-800">Faculty Information</h3>
+              <h3 className="text-lg sm:text-xl font-bold text-slate-800 pr-8">Faculty Information</h3>
             </div>
 
-            <div className="space-y-8">
+            <div className="space-y-6 sm:space-y-8">
               {/* Personal Details */}
               <section>
                 <h4 className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-4 border-b border-slate-100 pb-2">
@@ -209,11 +377,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 <div className="grid grid-cols-1 gap-y-4">
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Name</p>
-                    <p className="text-sm font-semibold text-slate-800">{loading ? 'Loading...' : fullName}</p>
+                    <p className="text-sm font-semibold text-slate-800 break-words">{loading ? 'Loading...' : fullName}</p>
                   </div>
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Department</p>
-                    <p className="text-sm font-semibold text-slate-800">{loading ? 'Loading...' : departmentName}</p>
+                    <p className="text-sm font-semibold text-slate-800 break-words">{loading ? 'Loading...' : departmentName}</p>
                   </div>
                 </div>
               </section>
@@ -223,7 +391,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 <h4 className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-4 border-b border-slate-100 pb-2">
                   <Briefcase size={16} className="text-slate-400" /> Employment Status
                 </h4>
-                <div className="grid grid-cols-2 gap-y-4 gap-x-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4">
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Present Rank</p>
                     <p className="text-sm font-semibold text-slate-800">
@@ -239,13 +407,14 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 </div>
               </section>
 
+              {/* Educational Attainment */}
               <section>
                 <h4 className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-4 border-b border-slate-100 pb-2">
                   <GraduationCap size={16} className="text-slate-400" /> Educational Attainment
                 </h4>
                 <div className="space-y-3">
                   <div className="p-3 bg-slate-50 rounded-xl">
-                    <p className="text-sm font-semibold text-slate-800">
+                    <p className="text-sm font-semibold text-slate-800 break-words">
                       {fullUserData?.educational_attainment || 'No data provided'}
                     </p>
                   </div>
@@ -257,7 +426,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 <h4 className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-4 border-b border-slate-100 pb-2">
                   <Award size={16} className="text-slate-400" /> Experience & Rating
                 </h4>
-                <div className="grid grid-cols-2 gap-y-4 gap-x-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4">
                   <div>
                     <p className="text-[11px] text-slate-400 font-semibold mb-1">Teaching Exp.</p>
                     <p className="text-sm font-semibold text-slate-800">
@@ -280,42 +449,78 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                   </div>
                 </div>
               </section>
-
             </div>
           </div>
 
           {/* Right Side: Submitted Areas & Qualification */}
-          <div className="flex-1 p-10 overflow-y-auto bg-white flex flex-col relative">
+          <div className="w-full md:flex-1 p-5 sm:p-8 md:p-10 md:overflow-y-auto bg-white flex flex-col relative min-h-[500px] md:min-h-0">
             
             {loading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-10 backdrop-blur-sm">
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-10 backdrop-blur-sm rounded-b-2xl md:rounded-r-2xl md:rounded-bl-none">
                 <Loader2 className="animate-spin text-[#0a5e2f] mb-4" size={32} />
                 <p className="text-sm font-bold text-slate-500">Loading data...</p>
               </div>
             )}
 
-            <div className="mb-10">
-              <h3 className="text-base font-bold text-slate-800 uppercase tracking-wide mb-6">Submitted Areas</h3>
-              <div className="space-y-6">
+            <div className="mb-8 md:mb-10">
+              <h3 className="text-sm md:text-base font-bold text-slate-800 uppercase tracking-wide mb-4 md:mb-6">Submitted Areas</h3>
+              <div className="space-y-4 md:space-y-6">
                 {areas.length > 0 ? areas.map((area, idx) => (
-                  <div key={idx} className="group">
-                    <div className="flex justify-between items-end mb-2">
-                      <div className="flex-1 pr-6">
+                  <div key={idx} className="group overflow-hidden rounded-lg border border-slate-100 bg-white">
+                    <div className="flex justify-between items-center cursor-pointer p-4 transition hover:bg-slate-50" onClick={() => toggleAreaAccordion(idx)}>
+                      <div className="flex-1 pr-4 md:pr-6">
                         <p className="text-xs font-bold text-slate-700 leading-tight mb-1">{area.title}</p>
                         <p className="text-[10px] text-slate-400 font-medium">Max: {area.max.toFixed(2)} pts <span className="text-yellow-500 ml-1">+0 excess</span></p>
                       </div>
-                      <div className="text-right flex flex-col items-end">
-                        <span className="text-sm font-bold text-[#0a5e2f]">{area.current.toFixed(2)}</span>
-                        {area.fileUrl ? (
-                          <a href={area.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-[#0a5e2f] hover:underline mt-1">
-                            view file
-                          </a>
-                        ) : (
-                          <span className="text-[11px] font-medium text-slate-300 mt-1">No file</span>
-                        )}
+                      <div className="text-right flex items-center gap-3 shrink-0">
+                        <span className="text-sm font-bold text-[#0a5e2f]">{area.current.toFixed(2)} pts</span>
+                        <ChevronDown className={`w-5 h-5 text-slate-400 transform transition-transform ${openAreaAccordions[idx] ? 'rotate-180' : ''}`} />
                       </div>
                     </div>
-                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+
+                    {/* Collapsible Panel with grouped files per area */}
+                    {openAreaAccordions[idx] && (
+                        <div className="p-4 pt-0 border-t border-slate-100 bg-slate-50/50">
+                            {area.groupedSubmissions && area.groupedSubmissions.length > 0 ? (
+                                area.groupedSubmissions.map((groupedSub, groupedIdx) => (
+                                    <div key={groupedIdx} className="mb-3 last:mb-0">
+                                        <div className="flex justify-between items-center mb-1.5 pt-2 border-t border-dashed border-slate-200">
+                                            <p className="text-[11px] font-bold text-slate-600 tracking-wider uppercase">{groupedSub.partName}</p>
+                                            <span className="text-[10px] font-semibold text-[#0a5e2f] bg-green-50 px-2 py-0.5 rounded-full">{groupedSub.totalPointsForPart.toFixed(2)} pts total</span>
+                                        </div>
+                                        {groupedSub.files.map((file, fileIdx) => (
+                                            <div key={fileIdx} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-100 mb-1 last:mb-0 shadow-sm">
+                                                <div className="flex items-center gap-2.5 overflow-hidden">
+                                                    <div className="flex-shrink-0 flex items-center justify-center bg-green-50 rounded-lg p-2">
+                                                        <FileText className="w-5 h-5 text-[#0a5e2f]" />
+                                                    </div>
+                                                    <div className='flex-1 overflow-hidden'>
+                                                        <p className={`text-[11px] font-semibold truncate ${file.url ? 'text-slate-800' : 'text-slate-400 italic'}`} title={file.fileName}>{file.fileName}</p>
+                                                        <p className="text-[10px] text-slate-400 font-medium">{file.points.toFixed(2)} pts awarded</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right flex flex-col items-end shrink-0 pl-3">
+                                                    {file.url ? (
+                                                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-[#0a5e2f] hover:underline mt-1 bg-[#d7f4e7] px-3 py-1.5 rounded-full">
+                                                          view file
+                                                      </a>
+                                                    ) : (
+                                                      <span className="text-[10px] font-semibold text-slate-500 mt-1 bg-slate-100 px-3 py-1.5 rounded-full">
+                                                          no pdf available
+                                                      </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-sm text-slate-500 italic py-2">No files available for this area.</p>
+                            )}
+                        </div>
+                    )}
+                    
+                    <div className="h-1.5 bg-slate-100 rounded-b-lg overflow-hidden">
                       <motion.div 
                         initial={{ width: 0 }}
                         animate={{ width: `${Math.min((area.current / area.max) * 100, 100)}%` }}
@@ -329,58 +534,129 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
               </div>
             </div>
 
+            {/* Bottom Actions Section */}
             <div className="mt-auto border-t border-slate-200 pt-6">
-              <div className="flex justify-between items-center mb-8">
+              <div className="flex justify-between items-center mb-6 md:mb-8">
                 <span className="text-sm font-bold text-slate-800">TOTAL POINTS:</span>
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 mr-4">Max: 200.00 pts with/without excess points</span>
-                  <span className="text-base font-bold text-[#0a5e2f]">{totalPoints.toFixed(2)}</span>
+                <div className="text-right flex flex-col sm:block">
+                  <span className="text-[10px] text-slate-400 sm:mr-4 mb-1 sm:mb-0">Max: 200.00 pts</span>
+                  <span className="text-base font-bold text-[#0a5e2f]">{totalPoints.toFixed(2)} pts</span>
                 </div>
               </div>
 
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-4">Qualification</h3>
-              <div className="space-y-3 mb-8 bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                <div className="flex justify-between items-center">
+              <div className="space-y-4 mb-6 md:mb-8 bg-slate-50 p-4 md:p-5 rounded-2xl border border-slate-100">
+                
+                {/* EXPERIENCE Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
                   <span className="text-xs font-semibold text-slate-600 uppercase">Experience</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-500">QUALIFIED FOR PROFESSOR I - V</span>
-                    <CheckCircle2 className="text-[#0a5e2f]" size={18} />
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualExperience}
+                      onChange={(e) => setQualExperience(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED FOR PROFESSOR I - V">QUALIFIED FOR PROFESSOR I - V</option>
+                      <option value="QUALIFIED FOR ASSOCIATE PROF. I - V">QUALIFIED FOR ASSOCIATE PROF. I - V</option>
+                      <option value="QUALIFIED FOR ASSISTANT PROF. I - IV">QUALIFIED FOR ASSISTANT PROF. I - IV</option>
+                      <option value="QUALIFIED FOR INSTRUCTOR I - III">QUALIFIED FOR INSTRUCTOR I - III</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualExperience === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
                   </div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-semibold text-slate-600 uppercase">Teaching Performance</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-500">QUALIFIED FOR PROFESSOR I - V</span>
-                    <CheckCircle2 className="text-[#0a5e2f]" size={18} />
+
+                {/* DEGREE Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
+                  <span className="text-xs font-semibold text-slate-600 uppercase">Degree</span>
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualDegree}
+                      onChange={(e) => setQualDegree(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED FOR PROFESSOR I - V">QUALIFIED FOR PROFESSOR I - V</option>
+                      <option value="QUALIFIED FOR ASSOCIATE PROF. I - V">QUALIFIED FOR ASSOCIATE PROF. I - V</option>
+                      <option value="QUALIFIED FOR ASSISTANT PROF. I - IV">QUALIFIED FOR ASSISTANT PROF. I - IV</option>
+                      <option value="QUALIFIED FOR INSTRUCTOR I - III">QUALIFIED FOR INSTRUCTOR I - III</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualDegree === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
                   </div>
                 </div>
-                <div className="flex justify-between items-center">
+
+                {/* TEACHING EXPERIENCE Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
+                  <span className="text-xs font-semibold text-slate-600 uppercase">Teaching Experience</span>
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualTeaching}
+                      onChange={(e) => setQualTeaching(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED">QUALIFIED</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualTeaching === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
+                  </div>
+                </div>
+
+                {/* RESEARCH OUTPUT Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
                   <span className="text-xs font-semibold text-slate-600 uppercase">Research Output</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-500">NOT QUALIFIED</span>
-                    <XCircle className="text-red-500" size={18} />
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualResearch}
+                      onChange={(e) => setQualResearch(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED">QUALIFIED</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualResearch === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
                   </div>
                 </div>
-                <div className="flex justify-between items-center">
+
+                {/* ELIGIBILITY Dropdown */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
                   <span className="text-xs font-semibold text-slate-600 uppercase">Eligibility</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-500">NOT QUALIFIED</span>
-                    <XCircle className="text-red-500" size={18} />
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select 
+                      value={qualEligibility}
+                      onChange={(e) => setQualEligibility(e.target.value)}
+                      className="w-full sm:w-56 text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5 outline-none focus:border-[#0a5e2f] focus:ring-1 focus:ring-[#0a5e2f]"
+                    >
+                      <option value="QUALIFIED">QUALIFIED</option>
+                      <option value="NOT QUALIFIED">NOT QUALIFIED</option>
+                    </select>
+                    {qualEligibility === "NOT QUALIFIED" ? <XCircle className="text-red-500 shrink-0" size={16} /> : <CheckCircle2 className="text-[#0a5e2f] shrink-0" size={16} />}
                   </div>
                 </div>
+
               </div>
 
-              <div className="flex gap-4">
-                <button className="flex-1 py-3.5 bg-[#3b82f6] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-blue-600 transition-colors flex items-center justify-center gap-2">
-                  <Download size={16} />
+              {/* ACTION BUTTONS */}
+              <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4">
+                <button 
+                  onClick={handleDownloadResult}
+                  disabled={downloading || loading}
+                  className="w-full sm:flex-1 py-3.5 bg-[#3b82f6] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-blue-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   Download Result
                 </button>
                 <button 
                   onClick={handleCompleteReview}
-                  disabled={updating}
-                  className="flex-1 py-3.5 bg-[#0a5e2f] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-[#084b25] transition-colors shadow-lg shadow-[#0a5e2f]/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                  disabled={updating || loading || isAlreadyCompleted}
+                  className="w-full sm:flex-1 py-3.5 bg-[#0a5e2f] text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-[#084b25] transition-colors shadow-lg shadow-[#0a5e2f]/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {updating ? <Loader2 size={16} className="animate-spin" /> : 'Review Completed'}
+                  {updating ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : isAlreadyCompleted ? (
+                    'Review Already Completed'
+                  ) : (
+                    'Review Completed'
+                  )}
                 </button>
               </div>
             </div>

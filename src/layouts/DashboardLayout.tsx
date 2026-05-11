@@ -9,7 +9,9 @@ import {
   Calendar,
   ChevronRight,
   AlertCircle,
-  Check
+  Check,
+  Menu,
+  X
 } from 'lucide-react';
 import { supabase } from '../supabaseClient'; 
 
@@ -26,6 +28,7 @@ const DashboardLayout = () => {
   const navigate = useNavigate();
   
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // User Profile States
   const [userName, setUserName] = useState("Loading...");
@@ -47,19 +50,22 @@ const DashboardLayout = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Close mobile menu when route changes
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
+
   // Fetch Logged-in User Profile
   useEffect(() => {
     const fetchUserProfile = async () => {
       try {
-        // 1. Get the current authenticated user
         const { data: authData, error: authError } = await supabase.auth.getUser();
         if (authError || !authData?.user) return;
 
-        // 2. Fetch their details from your public.users table using their email
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select('name_first, name_last')
-          .eq('domain_email', authData.user.email) // <--- FIXED HERE
+          .eq('domain_email', authData.user.email) 
           .single();
 
         if (userError) throw userError;
@@ -67,7 +73,6 @@ const DashboardLayout = () => {
         if (userData) {
           const first = userData.name_first || '';
           const last = userData.name_last || '';
-          // We add 'Dr.' here based on your previous mock data, remove if not applicable to all VPAAs!
           setUserName(`Dr. ${first} ${last}`.trim());
           setUserInitials(`${first.charAt(0)}${last.charAt(0)}`.toUpperCase());
         }
@@ -87,11 +92,9 @@ const DashboardLayout = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Fetch initial notifications
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
-        // .eq('user_id', user.id) // Uncomment if notifications are user-specific
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -102,7 +105,6 @@ const DashboardLayout = () => {
 
     fetchNotifications();
 
-    // Set up real-time subscription for new notifications
     const channel = supabase
       .channel('schema-db-changes')
       .on(
@@ -122,12 +124,10 @@ const DashboardLayout = () => {
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
   const markAsRead = async (id: string) => {
-    // Update local state instantly
     setNotifications(prev => 
       prev.map(n => n.id === id ? { ...n, is_read: true } : n)
     );
 
-    // Update in Supabase
     await supabase
       .from('notifications')
       .update({ is_read: true })
@@ -137,7 +137,6 @@ const DashboardLayout = () => {
   const markAllAsRead = async () => {
     setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
     
-    // Update all unread in Supabase
     const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id);
     if (unreadIds.length > 0) {
       await supabase
@@ -183,16 +182,38 @@ const DashboardLayout = () => {
   ];
 
   return (
-    <div className="flex h-screen bg-[#f3f4f6]">
+    <div className="flex h-screen bg-[#f3f4f6] overflow-hidden">
       
-      <aside className="w-64 bg-sidebar text-white flex flex-col shrink-0">
-        <div className="p-8 flex flex-col items-center border-b border-white/10">
-          <img src="/assets/gc-logo.png" alt="Logo" className="w-16 h-16 mb-4" />
+      {/* Mobile Sidebar Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Component */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-sidebar text-white flex flex-col shrink-0
+        transform transition-transform duration-300 ease-in-out
+        md:relative md:translate-x-0
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="p-6 md:p-8 flex flex-col items-center border-b border-white/10 relative">
+          {/* Close Menu Button (Mobile Only) */}
+          <button 
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="absolute top-4 right-4 p-2 text-white/50 hover:text-white md:hidden rounded-lg hover:bg-white/10"
+          >
+            <X size={20} />
+          </button>
+
+          <img src="/assets/gc-logo.png" alt="Logo" className="w-12 h-12 md:w-16 md:h-16 mb-4" />
           <h1 className="text-sm font-bold tracking-tight text-center">Gordon College</h1>
-          <p className="text-[10px] uppercase tracking-widest text-white/50 font-bold">VPAA RANKING PORTAL</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/50 font-bold">VPAA PORTAL</p>
         </div>
 
-        <nav className="flex-1 py-10 px-4 space-y-2">
+        <nav className="flex-1 py-6 md:py-10 px-4 space-y-2 overflow-y-auto">
           {navItems.map((item) => (
             <NavLink
               key={item.path}
@@ -211,14 +232,12 @@ const DashboardLayout = () => {
           ))}
         </nav>
 
-        <div className="p-6 border-t border-white/10">
+        <div className="p-4 md:p-6 border-t border-white/10">
           <div className="flex items-center gap-3 mb-6 px-2">
-            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center border border-white/10">
-              {/* Dynamic Initials applied here */}
-              <span className="font-bold text-primary-light">{userInitials || 'VP'}</span>
+            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center border border-white/10 shrink-0">
+              <span className="font-bold text-primary-light text-sm">{userInitials || 'VP'}</span>
             </div>
             <div className="overflow-hidden">
-              {/* Dynamic Name applied here */}
               <p className="text-sm font-bold truncate" title={userName}>{userName}</p>
               <p className="text-[10px] text-white/40 font-semibold uppercase">VPAA Director</p>
             </div>
@@ -226,7 +245,7 @@ const DashboardLayout = () => {
           
           <button 
             onClick={() => setShowLogoutModal(true)} 
-            className="flex items-center gap-3 px-4 py-3 w-full text-white/60 hover:text-white hover:bg-green-500/20 hover:text-red-400 rounded-lg transition-all text-sm font-semibold"
+            className="flex items-center gap-3 px-4 py-3 w-full text-white/60 hover:text-white hover:bg-red-500/10 hover:text-red-400 rounded-lg transition-all text-sm font-semibold"
           >
             <LogOut size={20} />
             Logout
@@ -234,19 +253,32 @@ const DashboardLayout = () => {
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col w-full min-w-0">
     
-        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shadow-sm relative">
-          <div>
-            <h2 className="text-lg font-bold text-sidebar">{getPageTitle()}</h2>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">VPAA Portal</p>
+        <header className="h-16 bg-white border-b border-slate-200 px-4 md:px-8 flex items-center justify-between shadow-sm relative z-30">
+          
+          <div className="flex items-center gap-3">
+            {/* Hamburger Menu Toggle (Mobile Only) */}
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg md:hidden"
+            >
+              <Menu size={24} />
+            </button>
+            
+            <div>
+              <h2 className="text-base md:text-lg font-bold text-sidebar">{getPageTitle()}</h2>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest hidden sm:block">VPAA Portal</p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3 md:gap-6">
             
-            <div className="flex items-center gap-2 text-slate-500 bg-slate-50 px-4 py-2 rounded-full border border-slate-200">
-              <Calendar size={16} />
-              <span className="text-sm font-semibold">{getCurrentDate()}</span>
+            {/* Date Badge (Hidden on very small mobile devices to save space) */}
+            <div className="hidden sm:flex items-center gap-2 text-slate-500 bg-slate-50 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-slate-200">
+              <Calendar size={14} className="md:w-4 md:h-4" />
+              <span className="text-xs md:text-sm font-semibold">{getCurrentDate()}</span>
             </div>
             
             {/* Notification Bell */}
@@ -255,9 +287,9 @@ const DashboardLayout = () => {
                 onClick={() => setShowNotifications(!showNotifications)}
                 className="relative p-2 text-slate-400 hover:text-primary transition-colors bg-slate-50 rounded-full border border-slate-200 cursor-pointer"
               >
-                <Bell size={20} />
+                <Bell size={18} className="md:w-5 md:h-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white">
+                  <span className="absolute top-0 right-0 w-3.5 h-3.5 md:w-4 md:h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
@@ -265,8 +297,8 @@ const DashboardLayout = () => {
 
               {/* Notification Dropdown */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-sm sm:w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right">
+                  <div className="p-3 md:p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                     <h3 className="font-bold text-slate-800 text-sm">Notifications</h3>
                     {unreadCount > 0 && (
                       <button 
@@ -277,7 +309,7 @@ const DashboardLayout = () => {
                       </button>
                     )}
                   </div>
-                  <div className="max-h-80 overflow-y-auto">
+                  <div className="max-h-72 md:max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? (
                       <div className="p-8 text-center text-slate-400">
                         <Bell size={24} className="mx-auto mb-2 opacity-20" />
@@ -288,17 +320,17 @@ const DashboardLayout = () => {
                         {notifications.map((notif) => (
                           <div 
                             key={notif.id} 
-                            className={`p-4 flex gap-3 hover:bg-slate-50 transition-colors ${!notif.is_read ? 'bg-primary/5' : ''}`}
+                            className={`p-3 md:p-4 flex gap-3 hover:bg-slate-50 transition-colors ${!notif.is_read ? 'bg-primary/5' : ''}`}
                           >
-                            <div className="mt-1">
+                            <div className="mt-1 shrink-0">
                               {!notif.is_read ? (
                                 <div className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--color-primary),0.5)]"></div>
                               ) : (
                                 <Check size={12} className="text-slate-300" />
                               )}
                             </div>
-                            <div className="flex-1">
-                              <p className={`text-sm ${!notif.is_read ? 'text-slate-800 font-semibold' : 'text-slate-600'}`}>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm ${!notif.is_read ? 'text-slate-800 font-semibold' : 'text-slate-600'} break-words`}>
                                 {notif.message}
                               </p>
                               <p className="text-[10px] text-slate-400 font-medium mt-1">
@@ -308,7 +340,7 @@ const DashboardLayout = () => {
                             {!notif.is_read && (
                               <button 
                                 onClick={() => markAsRead(notif.id)}
-                                className="text-slate-300 hover:text-primary transition-colors cursor-pointer"
+                                className="text-slate-300 hover:text-primary transition-colors cursor-pointer shrink-0 ml-2"
                                 title="Mark as read"
                               >
                                 <Check size={16} />
@@ -326,14 +358,14 @@ const DashboardLayout = () => {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-8 relative">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 relative">
           <Outlet />
         </main>
       </div>
 
       {/* Logout Modal */}
       {showLogoutModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-6">
               <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-50 text-red-500 mb-4 mx-auto">
@@ -343,16 +375,16 @@ const DashboardLayout = () => {
               <p className="text-sm text-slate-500 text-center mb-6">
                 Are you sure you want to log out of the VPAA portal? You will need to sign in again to access your account.
               </p>
-              <div className="flex gap-3">
+              <div className="flex flex-col-reverse sm:flex-row gap-3">
                 <button 
                   onClick={() => setShowLogoutModal(false)}
-                  className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors cursor-pointer"
+                  className="flex-1 px-4 py-2.5 sm:py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={handleConfirmLogout}
-                  className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-red-500/30 transition-colors cursor-pointer"
+                  className="flex-1 px-4 py-2.5 sm:py-3 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-red-500/30 transition-colors cursor-pointer"
                 >
                   Yes, Log Out
                 </button>
